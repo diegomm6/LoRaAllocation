@@ -715,8 +715,9 @@ def plot_sat_track(points, t0, t1):
     ax.scatter(longitudes, latitudes, color='red', s=10, transform=ccrs.PlateCarree(), label='End-Devices')
 
     satellite = load_satellite()
-    sat = satellite.at(t - timedelta(seconds=1))
+    sat = satellite.at(t0 - timedelta(seconds=1))
     last_lat, _ = wgs84.latlon_of(sat)
+    last_lat = last_lat.degrees
     ascending_labeled = False
     descending_labeled = False
     
@@ -735,15 +736,15 @@ def plot_sat_track(points, t0, t1):
             descending_labeled = True
             
         last_lat = lat.degrees
-        t += timedelta(seconds=15)
+        t += timedelta(seconds=10)
 
     ax.set_global()
     plt.title('Satellite Trajectory for 1 day', fontsize=16)
     plt.xticks(fontsize=12)
     plt.yticks(fontsize=12)
     plt.legend(fontsize=10)
-    #plt.show()
-    plt.savefig("sattrack.pdf")
+    plt.show()
+    #plt.savefig("sattrack.pdf")
 
 
 def plot_laptrack(t0, t1):

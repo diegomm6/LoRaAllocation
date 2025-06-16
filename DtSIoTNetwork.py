@@ -7,6 +7,7 @@ from Scheduler import Scheduler
 from opt1Dmodel import Opt1DModel
 from opt2Dmodel import Opt2DModel
 from optLRFHSS import OptLRFHSS
+from lorawanClassA import LorawanClassA
 from DistributedUP import DistributedUplinkPolicy
 
 class DtSIoTNetwork():
@@ -31,6 +32,87 @@ class DtSIoTNetwork():
         self.gateway = Gateway(numDevices, slottime, timeslots, numLRchannels, numFHSSchannels)
 
         self.initialize_data(datafile, save_cache)
+
+
+
+    #########################################################################################
+    #########################################################################################
+    #########################################################################################
+
+    # run simulation for a list of networks sizes and provide metrics
+    # against the number of EDs comparing SF allocation and time usage
+    # for different methods, 1d, 2d and distributed
+    def compare_methods(self, network_sizes, range_based_order=False):
+
+        sf_colors = [u'#FF00FF', u'#00FF00', u'#00FFFF', u'#800080', u'#00CED1', u'#8c564b']
+        samples = len(network_sizes)
+
+        scheduled_txs = np.zeros((3, samples))
+        successful_receptions = np.zeros((3, samples))
+
+        availableSF_data = np.array([ed.cached_availableSFs for ed in self.enddevices])
+        availableSF_data = availableSF_data[:,:-1,:-2] # remove last timeslot, remove lrfhss
+
+        if range_based_order:
+            distances_at_beginning = [ed.cached_ranges[0] for ed in self.enddevices]
+            sorted_indices = np.argsort(distances_at_beginning)
+            availableSF_data = availableSF_data[sorted_indices]
+
+
+        for i, numEDs in enumerate(network_sizes):
+
+            sub_availableSF_data = availableSF_data[:numEDs]
+
+            args = (numEDs, self.slottime, self.timeslots, self.numLRchannels, sub_availableSF_data)
+
+            scheduler1D = Opt1DModel(*args)
+            scheduler2D = Opt2DModel(*args)
+            lorawanClassA = LorawanClassA(*args)
+            
+            schedules = scheduler1D.get_schedule()
+            distances_at_tx_time = self.get_distances_at_tx_time(schedules)
+            is_successful, sinr = self.gateway.calcute_sinr(schedules, distances_at_tx_time)
+            scheduled_txs[0][i] = len(schedules) / numEDs
+            successful_receptions[0][i] = is_successful.sum() / numEDs
+
+            schedules = scheduler2D.get_schedule()
+            distances_at_tx_time = self.get_distances_at_tx_time(schedules)
+            is_successful, sinr = self.gateway.calcute_sinr(schedules, distances_at_tx_time)
+            scheduled_txs[1][i] = len(schedules) / numEDs
+            successful_receptions[1][i] = is_successful.sum() / numEDs
+
+
+            schedules = lorawanClassA.get_schedule()
+            distances_at_tx_time = self.get_distances_at_tx_time(schedules)
+            is_successful, sinr = self.gateway.calcute_sinr(schedules, distances_at_tx_time)
+            scheduled_txs[2][i] = len(schedules) / numEDs
+            successful_receptions[2][i] = is_successful.sum() / numEDs
+
+            del scheduler1D, scheduler2D
+            print(f"done for {numEDs}")
+
+
+        plt.figure(figsize=(10, 6))
+
+        plt.plot(network_sizes, scheduled_txs[0], c='b', label='Sent 1D')
+        plt.plot(network_sizes, successful_receptions[0], c='b', linestyle='dashed', label='Received 1D')
+
+        plt.plot(network_sizes, scheduled_txs[1], c='g', label='Sent 2D')
+        plt.plot(network_sizes, successful_receptions[1], c='g', linestyle='dashed', label='Received 2D')
+
+        plt.plot(network_sizes, scheduled_txs[2], c='r', label='Sent Class A')
+        plt.plot(network_sizes, successful_receptions[2], c='r', linestyle='dashed', label='Received Class A')
+
+        plt.xlabel('Generated packets')
+        plt.ylabel('normalized packets')
+        plt.title(f'Scheduling model for different network sizes')
+        plt.legend()
+        plt.grid()
+        plt.show()
+
+    #########################################################################################
+    #########################################################################################
+    #########################################################################################
 
     
     # run simulation for a list of networks sizes and provide metrics

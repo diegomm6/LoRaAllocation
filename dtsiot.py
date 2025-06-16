@@ -12,7 +12,9 @@ points = [
 ]
 
 kineis_constellation = ['KINEIS-1A', 'KINEIS-1B', 'KINEIS-1C', 'KINEIS-1D', 'KINEIS-1E',
+                        'KINEIS-2A', 'KINEIS-2B', 'KINEIS-2C', 'KINEIS-2D', 'KINEIS-2E',
                         'KINEIS-3A', 'KINEIS-3B', 'KINEIS-3C', 'KINEIS-3D', 'KINEIS-3E',
+                        'KINEIS-4A', 'KINEIS-4B', 'KINEIS-4C', 'KINEIS-4D', 'KINEIS-4E',
                         'KINEIS-5A', 'KINEIS-5B', 'KINEIS-5C', 'KINEIS-5D', 'KINEIS-5E']
 
 default_colors = [u'#1f77b4', u'#ff7f0e', u'#2ca02c', u'#d62728', u'#9467bd',
@@ -33,7 +35,17 @@ colors_ = [
     '#A0522D',    # Sienna
     '#00CED1',    # Dark Turquoise
     '#FF4500',    # Orange Red
-    '#2F4F4F'     # Dark Slate Gray
+    '#2F4F4F',    # Dark Slate Gray
+    '#FF0300',    # Red2
+    '#00FF03',    # Lime2
+    '#0003FF',    # Blue2
+    '#FF03FF',    # Magenta2
+    '#03FFFF',    # Cyan2
+    '#FFA503',    # Orange2
+    '#800380',    # Purple2
+    '#008003',    # Green2
+    '#FFD703',    # Gold2
+    '#FF69BF',    # Hot Pink2
 ]
 
 ts = load.timescale()
@@ -54,7 +66,7 @@ point = wgs84.latlon(lat, lon)
 
 #plot_best_satellite_passes(points, t0, t1)
 
-#plot_sat_track(points, t0, t1)
+plot_sat_track(points, t0, t1)
 
 #plot_alllaps_SFcurve(points, t0, t1)
 
@@ -76,6 +88,7 @@ point = wgs84.latlon(lat, lon)
 
 #print(round(max_sf12_range()/1e3))
 
+exit(1)
 
 t0 = ts.utc(2024,12,1,7,30,48)
 t1 = ts.utc(2024,12,1,7,32,48)
@@ -83,41 +96,9 @@ numDevices = 20
 slottime = 1 # lora_toa(PL_BYTES, 11)
 timeslots = int(np.ceil(round(float(t1 - t0) * 86400) / slottime))
 
-#network = DtSIoTNetwork(numDevices, t0, slottime, timeslots, 1, 1)
-#network.plot_bestSF_map()
-#network.plot_heatmapSF()
-#network.plot_bestSF_ocurrences()
-#network.plot_availableSF_map(11)
-
-
-t0 = ts.utc(2024,12,1,7,28,48) # 7,28,48
-t1 = ts.utc(2024,12,1,7,34,48) # 7,34,48
-
-slottime = lora_toa(PL_BYTES, 11)
-timeslots = int(np.ceil(round(float(t1 - t0) * 86400) / slottime))
-numLRchannels = 3
-numFHSSchannles = 1
-numDevices = 3000
-locationsfilename = "locations3k.txt"
-datafile = "data_3000EDs_546slots.json"
-save_sache = False
-
-network = DtSIoTNetwork(numDevices, t0, slottime, timeslots, numLRchannels,
-                        numFHSSchannles, locationsfilename, datafile, save_sache)
-
-uplink_period = 60
-beacon_time = int(timeslots / 6)
-#network.plot_heatmapSF_ULperiods(uplink_period, True, 50)
-#network.solve_scheduling("1D")
-#network.solve_scheduling("2D")
-#network.solve_scheduling("distributed")
-#network.solve_scheduling("lrfhss")
-
-
-sizes = np.linspace(100,3000,5,dtype=int)
-network.run_simulation(sizes, "1D")
-
-#network.solve_scheduling_per_beacon(300, beacon_time)
-
-#network.solve_distributed_scheduling(200, beacon_time)
+network = DtSIoTNetwork(numDevices, t0, slottime, timeslots, 1, 1)
+network.plot_bestSF_map()
+network.plot_heatmapSF()
+network.plot_bestSF_ocurrences()
+network.plot_availableSF_map(11)
 

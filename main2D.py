@@ -8,8 +8,8 @@ if __name__ == "__main__":
     numNodes = 5000
     simTime = 5
     numChannels = 10
-    CR=1
-    minEangle = 0 * np.pi /180
+    CR = 1
+    minEangle = 20 * np.pi /180
     timeGranularity = 5
 
     network = LoRaNetwork(simTime, numNodes, numChannels, CR, minEangle, timeGranularity)
@@ -37,7 +37,12 @@ if __name__ == "__main__":
         break
         plot_sf_channels(sf)
 
-    network.plot_ground_constraints()
-    #network.plot_doppler_effect(True)
+    #network.plot_ground_constraints()
+    network.plot_doppler_effect()
+    #network.plot_visibility_time()
+    #network.plot_sf_linkbudget()
     
+    #network.plot_visibility_time_discrete()
+    #network.plot_doppler_shift_discrete()
+    #network.plot_doppler_rate_discrete()
 

@@ -1,5 +1,5 @@
-from base import *
-from Scheduler import Scheduler
+from src.base import *
+from src.mac.Scheduler import Scheduler
 
 class DistributedUplinkPolicy(Scheduler):
 

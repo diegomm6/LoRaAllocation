@@ -1,6 +1,4 @@
-from base import *
-from matplotlib.colors import BoundaryNorm
-
+from src.base import *
 
 class LoRaTransmission():
 
@@ -139,7 +137,7 @@ class LoRaNetwork():
 
         # Define boundaries and normalization for 5 discrete zones
         bounds = [-0.5, 0.5, 1.5, 2.5, 3.5, 4.5]
-        norm = BoundaryNorm(bounds, ncolors=5)
+        norm = colors.BoundaryNorm(bounds, ncolors=5)
 
         # Use 'bwr' colormap, which is blue (low), white (middle), red (high)
         cmap = plt.get_cmap('bwr', 5)
@@ -180,7 +178,7 @@ class LoRaNetwork():
 
         cmap = plt.get_cmap('Greens_r', 3)
         bounds = [-0.5, 0.5, 1.5, 2.5]
-        norm = BoundaryNorm(bounds, cmap.N)
+        norm = colors.BoundaryNorm(bounds, cmap.N)
 
         plt.figure(figsize=(10,8))
         scatter = plt.scatter(node_x_pos, node_y_pos, c=zone_numeric, cmap=cmap, norm=norm, edgecolor='black')
@@ -238,7 +236,7 @@ class LoRaNetwork():
         # Use 3 discrete colors from 'Purples'
         cmap = plt.get_cmap('Purples', 3)
         bounds = [-0.5, 0.5, 1.5, 2.5]
-        norm = BoundaryNorm(bounds, cmap.N)
+        norm = colors.BoundaryNorm(bounds, cmap.N)
 
         plt.figure(figsize=(10,8))
         scatter = plt.scatter(node_x_pos, node_y_pos, c=zone_numeric, cmap=cmap, norm=norm, edgecolor='black')

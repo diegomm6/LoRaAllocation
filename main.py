@@ -1,10 +1,10 @@
-from base import *
-from DtSIoTNetwork import DtSIoTNetwork
+from src.base import *
+from src.network.DtSIoTNetwork import DtSIoTNetwork
 np.random.seed(42)
 
 ts = load.timescale()
-t0 = ts.utc(2024,12,1,6,40)
-t1 = ts.utc(2024,12,1,6,41)
+t0 = ts.utc(2025,6,2,7,15)
+t1 = ts.utc(2025,6,2,7,22)
 
 slottime = lora_toa(PL_BYTES, 11)
 timeslots = int(np.ceil(round(float(t1 - t0) * 86400) / slottime))
@@ -34,7 +34,8 @@ sizes = np.linspace(1,500,10,dtype=int)
 #network.solve_scheduling_per_beacon(300, beacon_time)
 #network.solve_distributed_scheduling(200, beacon_time)
 
-network.compare_methods(sizes)
+#network.compare_methods(sizes)
 #network.plot_bestSF_map()
 #network.plot_heatmapSF()
 #network.plot_bestSF_ocurrences()
+

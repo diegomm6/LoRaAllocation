@@ -1,14 +1,12 @@
-from base import *
-from EndDevice import EndDevice
-from Gateway import Gateway
-from matplotlib.animation import FuncAnimation, PillowWriter
-from datetime import datetime
-from Scheduler import Scheduler
-from opt1Dmodel import Opt1DModel
-from opt2Dmodel import Opt2DModel
-from optLRFHSS import OptLRFHSS
-from lorawanClassA import LorawanClassA
-from DistributedUP import DistributedUplinkPolicy
+from src.base import *
+from src.network.EndDevice import EndDevice
+from src.network.Gateway import Gateway
+from src.mac.Scheduler import Scheduler
+from src.mac.opt1Dmodel import Opt1DModel
+from src.mac.opt2Dmodel import Opt2DModel
+from src.mac.optLRFHSS import OptLRFHSS
+from src.mac.lorawanClassA import LorawanClassA
+from src.mac.DistributedUP import DistributedUplinkPolicy
 
 class DtSIoTNetwork():
 
@@ -765,7 +763,8 @@ class DtSIoTNetwork():
         writer = PillowWriter(fps=10, metadata=dict(artist='Me'))
 
         #plt.show()
-        anim.save('bestSF2.gif', writer=writer)
+        anim.save('bestSF_test.gif', writer=writer)
+
 
     def plot_heatmapSF_ULperiods(self, uplink_period, random_sample=False, eds_sample=1):
 

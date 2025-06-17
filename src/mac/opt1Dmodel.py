@@ -1,7 +1,7 @@
-from base import *
+from src.base import *
 import gurobipy as gp
 from gurobipy import GRB
-from Scheduler import Scheduler
+from src.mac.Scheduler import Scheduler
 
 # optimization model class for 1 channel
 class Opt1DModel(Scheduler):

@@ -2,13 +2,51 @@ import numpy as np
 import matplotlib.pyplot as plt
 import random, math, time, os, json
 from matplotlib import colors
+from matplotlib.animation import FuncAnimation, PillowWriter
 from geopy.geocoders import Nominatim
 import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 from skyfield.api import load, wgs84
-from datetime import timedelta
+from datetime import datetime, timedelta
 
+
+KINEIS_CONSTELLATION = ['KINEIS-1A', 'KINEIS-1B', 'KINEIS-1C', 'KINEIS-1D', 'KINEIS-1E',
+                        'KINEIS-2A', 'KINEIS-2B', 'KINEIS-2C', 'KINEIS-2D', 'KINEIS-2E',
+                        'KINEIS-3A', 'KINEIS-3B', 'KINEIS-3C', 'KINEIS-3D', 'KINEIS-3E',
+                        'KINEIS-4A', 'KINEIS-4B', 'KINEIS-4C', 'KINEIS-4D', 'KINEIS-4E',
+                        'KINEIS-5A', 'KINEIS-5B', 'KINEIS-5C', 'KINEIS-5D', 'KINEIS-5E']
+
+COLORS1 = [u'#1f77b4', u'#ff7f0e', u'#2ca02c', u'#d62728', u'#9467bd',
+           u'#8c564b', u'#e377c2', u'#7f7f7f', u'#bcbd22', u'#17becf']
+
+COLORS2 = [
+    '#FF0000',    # Red
+    '#00FF00',    # Lime
+    '#0000FF',    # Blue
+    '#FF00FF',    # Magenta
+    '#00FFFF',    # Cyan
+    '#FFA500',    # Orange
+    '#800080',    # Purple
+    '#008000',    # Green
+    '#FFD700',    # Gold
+    '#FF69B4',    # Hot Pink
+    '#4B0082',    # Indigo
+    '#A0522D',    # Sienna
+    '#00CED1',    # Dark Turquoise
+    '#FF4500',    # Orange Red
+    '#2F4F4F',    # Dark Slate Gray
+    '#FF0300',    # Red2
+    '#00FF03',    # Lime2
+    '#0003FF',    # Blue2
+    '#FF03FF',    # Magenta2
+    '#03FFFF',    # Cyan2
+    '#FFA503',    # Orange2
+    '#800380',    # Purple2
+    '#008003',    # Green2
+    '#FFD703',    # Gold2
+    '#FF69BF',    # Hot Pink2
+]
 
 ###############################################################################
 ##############################  GLOBAL VARIABLES  #############################
@@ -66,7 +104,6 @@ FR_N = 51.05
 FR_S = 42.20
 FR_E = -4.47
 FR_W = 8.13
-
 
 ###############################################################################
 ##############################  COMMON FUNCTIONS  #############################
@@ -678,7 +715,7 @@ def plot_enddevices(points):
     plt.show()
 
 
-def plot_sat_altitude(t0, t1):
+def plot_sat_altitude(t0, t1, delta):
 
     times = []
     heights = []
@@ -689,7 +726,7 @@ def plot_sat_altitude(t0, t1):
         height = wgs84.height_of(sat)
         heights.append(height.km)
         times.append(t.utc_datetime())
-        t += timedelta(seconds=5)
+        t += timedelta(seconds=delta)
 
     plt.plot(times, heights)
     plt.title('Satellite Altitude', fontsize=18)
@@ -702,7 +739,7 @@ def plot_sat_altitude(t0, t1):
     plt.show()
 
 
-def plot_sat_track(points, t0, t1):
+def plot_sat_track(points, t0, t1, delta):
 
     plt.figure(figsize=(16, 8))
     ax = plt.axes(projection=ccrs.Robinson())
@@ -736,7 +773,7 @@ def plot_sat_track(points, t0, t1):
             descending_labeled = True
             
         last_lat = lat.degrees
-        t += timedelta(seconds=10)
+        t += timedelta(seconds=delta)
 
     ax.set_global()
     plt.title('Satellite Trajectory for 1 day', fontsize=16)
@@ -747,7 +784,7 @@ def plot_sat_track(points, t0, t1):
     #plt.savefig("sattrack.pdf")
 
 
-def plot_laptrack(t0, t1):
+def plot_laptrack(t0, t1, delta):
 
     satellite = load_satellite()
     latitudes = []
@@ -758,7 +795,7 @@ def plot_laptrack(t0, t1):
         lat, lon = wgs84.latlon_of(sat)
         latitudes.append(lat.degrees)
         longitudes.append(lon.degrees)
-        t += timedelta(seconds=10)
+        t += timedelta(seconds=delta)
 
     if latitudes[-1]>latitudes[0]:
         plt.scatter(longitudes, latitudes, color='blue', s=30, transform=ccrs.PlateCarree(), marker='^', label='Sat Ascending')
@@ -817,7 +854,7 @@ def plot_best_satellite_passes(points, t0, t1):
     plot_dtsiot_scenario(points, lap_times)
     
 
-def plot_elevationangles(points, t0, t1, altitude_degrees, _colors):
+def plot_elevationangles(points, t0, t1, delta, altitude_degrees):
 
     satellite = load_satellite()
 
@@ -843,9 +880,9 @@ def plot_elevationangles(points, t0, t1, altitude_degrees, _colors):
                 times.append(t.utc_datetime())
                 distances.append(distance.km)
                 elevation.append(alt.degrees)
-                t += timedelta(seconds=1)
+                t += timedelta(seconds=delta)
 
-            plt.plot(times, elevation, color=_colors[i]) # label=f'lat={lat:.2f}, lon={lon:.2f}'
+            plt.plot(times, elevation, color=COLORS1[i]) # label=f'lat={lat:.2f}, lon={lon:.2f}'
 
     plt.title('Elevation Angle from End-Device to Satellite', fontsize=18)
     plt.xlabel('Time [seconds]', fontsize=14)
@@ -857,7 +894,7 @@ def plot_elevationangles(points, t0, t1, altitude_degrees, _colors):
     plt.show()
 
 
-def plot_elevationangles_constellation(constellation, point, t0, t1, _colors):
+def plot_elevationangles_constellation(constellation, point, t0, t1, delta):
 
     for i, satname in enumerate(constellation):
 
@@ -873,13 +910,13 @@ def plot_elevationangles_constellation(constellation, point, t0, t1, _colors):
             alt, _, _ = topocentric.altaz()
 
             times.append(t.utc_datetime())
-            t += timedelta(seconds=1)
+            t += timedelta(seconds=delta)
 
             if alt.degrees < 0: elevation.append(np.NaN)
             else: elevation.append(alt.degrees)
 
 
-        plt.plot(times, elevation, color=_colors[i]) # label=f'lat={lat:.2f}, lon={lon:.2f}'
+        plt.plot(times, elevation, color=COLORS2[i]) # label=f'lat={lat:.2f}, lon={lon:.2f}'
 
     plt.title('Elevation Angle from End-Device to Satellites', fontsize=18)
     plt.xlabel('Time', fontsize=14)
@@ -891,7 +928,7 @@ def plot_elevationangles_constellation(constellation, point, t0, t1, _colors):
     plt.show()
 
 
-def plot_dopplereffect(lat, lon, t0, t1, altitude_degrees):
+def plot_dopplereffect(lat, lon, t0, t1, delta, altitude_degrees):
 
     satellite = load_satellite()
     point = wgs84.latlon(lat, lon)
@@ -916,7 +953,7 @@ def plot_dopplereffect(lat, lon, t0, t1, altitude_degrees):
             _, _, _, _, _, range_rate = topocentric.frame_latlon_and_rates(point)
             shifts.append(- CHANNEL_FC * range_rate.m_per_s / LIGHT_C)
             times.append(t.utc_datetime())
-            t += timedelta(seconds=1)
+            t += timedelta(seconds=delta)
 
         doppler_rates = np.gradient(shifts) / np.gradient([time.timestamp() for time in times])
 

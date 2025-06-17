@@ -1,4 +1,4 @@
-from base import *
+from src.base import *
 
 # schdeuler module to assign transmission time slots and channels
 # to ED in the network owning this module
@@ -13,8 +13,9 @@ class Scheduler():
         self.LRchannels = numLRchannels     # number of LoRa channels
         self.FHSSchannels = 1
         self.slottime = slottime            # seconds per time slot 
-        self.T_m = get_timeslots_perSF(slottime)
-        self.T_c = get_timeslots_perCR(slottime)
+
+        self.T_m = get_timeslots_perSF(slottime) # time on air per SF in slots
+        self.T_c = get_timeslots_perCR(slottime) # time on air per CR in slots
 
         self.availableSF_per_node = availableSF_data
         self.bestSF = self.get_bestSF_overall()

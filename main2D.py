@@ -1,5 +1,5 @@
-from base import *
-from LoRaNetwork import LoRaNetwork
+from src.base import *
+from src.network.LoRaNetwork import LoRaNetwork
 
 
 if __name__ == "__main__":

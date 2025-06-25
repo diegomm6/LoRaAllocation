@@ -40,9 +40,8 @@ class LoRaNode():
         doppler_data = doppler(self.maxE_angle, self.TXtime)
         self.doppler_shift = doppler_data[0]  
         self.doppler_rate = doppler_data[1]
-
-        v = 7500 # m/s
-        self.visibility = (self.y + np.sqrt(maxGround_dist**2 - self.x**2)) / v
+        
+        self.visibility = (self.y + np.sqrt(maxGround_dist**2 - self.x**2)) / SAT_V
 
 
     def get_transmissions(self) -> list[LoRaTransmission]:
@@ -199,6 +198,7 @@ class LoRaNetwork():
         if save: plt.savefig("doppler_rate_zones.pdf")
         else: plt.show()
 
+
     def plot_visibility_time(self, save=False):
 
         node_x_pos = [node.x/1e3 for node in self.nodes]
@@ -207,18 +207,33 @@ class LoRaNetwork():
         visibility_time = [node.visibility for node in self.nodes]
 
         plt.figure(figsize=(10,8))
-        plt.scatter(node_x_pos, node_y_pos, c=visibility_time, cmap='Purples', edgecolor='black')
-        cbar = plt.colorbar(label='Visibility time [s]')
+        ax = plt.gca()
+
+        sc = ax.scatter(node_x_pos, node_y_pos, c=visibility_time, cmap='Purples', edgecolor='black')
+        cbar = plt.colorbar(sc, label='Visibility time [s]')
         cbar.set_label('Visibility time [s]', fontsize=12)
         cbar.ax.tick_params(labelsize=12)
         plt.xlabel('X Position [km]', fontsize=14)
         plt.ylabel('Y Position [km]', fontsize=14)
         plt.yticks(fontsize=10)
         plt.xticks(fontsize=10)
+        plt.grid(True, alpha=0.3)
         plt.title('Visibility time', fontsize=14)
+
+        # Elevation angles and circles
+        Eangles = [20, 40, 60, 80]  # degrees
+        for E in Eangles:
+            radius = ground_distance(np.radians(E)) / 1e3  # Convert to km for plot scale
+            circle = plt.Circle((0, 0), radius, fill=False, color='red', linestyle='--', linewidth=2.5, label=f'{E}°')
+            ax.add_patch(circle)
+
+        handles = [plt.Line2D([0], [0], color='red', linestyle='--', label=f'{E}°') for E in Eangles]
+        ax.legend(handles=handles, title='Elevation Angle')
+        ax.set_aspect('equal')
 
         if save: plt.savefig(f"visibility.pdf")
         else: plt.show()
+
 
 
     def plot_visibility_time_discrete(self, save=False):
@@ -252,6 +267,7 @@ class LoRaNetwork():
         plt.yticks(fontsize=10)
         plt.xticks(fontsize=10)
         plt.title('Visibility time zones', fontsize=14)
+        plt.grid(True, alpha=0.3)
 
         if save: plt.savefig("visibility.pdf")
         else: plt.show()
@@ -272,9 +288,8 @@ class LoRaNetwork():
             plt.figure(figsize=(10,10))
             for i in range(self.numNodes):
 
-                P_r_MON_RF_FE = received_power(P_t_RF_FE, G_t_MON, G_r_MON, node_dist[i], CHANNEL_FC, L_point_MON)
-
-                if doppler_shift_success(node_shift[i], sf) and linkbudget_success(P_r_MON_RF_FE, sf):
+                P_r = received_power(node_dist[i])
+                if doppler_shift_success(node_shift[i], sf) and linkbudget_success(P_r, sf):
                     success+=1
                     plt.scatter(node_x_pos[i], node_y_pos[i], marker='o', color='blue')
                 else:
@@ -297,28 +312,49 @@ class LoRaNetwork():
         node_dist = [np.sqrt(node.ground_dist**2 + SAT_H**2) for node in self.nodes]
 
         plt.figure(figsize=(10,10))
-        
+        ax = plt.gca()
+
         # For each node, find the LOWEST valid SF
+        sf_legend_added = set()  # Track which SFs have been added to legend
         for i in range(self.numNodes):
             # Check SFs in ascending order to find the first (lowest) valid one
-            for sf in sorted(self.availableSF):  # Critical change: sort SFs first
-                P_r_MON_RF_FE = received_power(P_t_RF_FE, G_t_MON, G_r_MON, node_dist[i], CHANNEL_FC, L_point_MON)
-                if linkbudget_success(P_r_MON_RF_FE, sf):
-                    plt.scatter(node_x_pos[i], node_y_pos[i], 
-                            color=colors_[sf-7],  # Assumes SF7 is index 0
-                            label=f'SF{sf}')
-                    break  # Exit SF loop after first valid SF
+            for sf in sorted(self.availableSF):
+                P_r = received_power(node_dist[i])
+                if linkbudget_success(P_r, sf):
+                    # Only add label for SF if it's the first occurrence
+                    label = f'SF{sf}' if sf not in sf_legend_added else ""
+                    sc = ax.scatter(node_x_pos[i], node_y_pos[i], color=colors_[sf-7], label=label)
+                    if label: sf_legend_added.add(sf)
+                    break
 
-        # Deduplicate legend entries
-        handles, labels = plt.gca().get_legend_handles_labels()
-        by_label = dict(zip(labels, handles))
-        plt.legend(by_label.values(), by_label.keys(), loc='upper right', fontsize=10)
+        # Elevation angles and circles
+        Eangles = [20, 40, 60, 80]  # degrees
+        elevation_handles = []
+        for E in Eangles:
+            radius = ground_distance(np.radians(E)) / 1e3  # Convert to km
+            circle = plt.Circle((0, 0), radius, fill=False, color='black', 
+                                linestyle='--', linewidth=2.5)
+            ax.add_patch(circle)
+            # Create proxy artist for legend
+            elevation_handles.append(plt.Line2D([0], [0], color='black', linestyle='--', 
+                                                label=f'{E}°', linewidth=2.5))
+
+        # Combine SF and elevation legends
+        sf_handles, sf_labels = ax.get_legend_handles_labels()
+        all_handles = sf_handles + elevation_handles
+        all_labels = [h.get_label() for h in all_handles]
+
+        plt.legend(all_handles, all_labels, loc='upper right', fontsize=10,
+                title='SF / Elevation Angle', title_fontsize=11)
 
         plt.xlabel('X Position [km]', fontsize=14)
         plt.ylabel('Y Position [km]', fontsize=14)
-        plt.title('SF Link Budget constraints', fontsize=14)
+        plt.title('SF Link Budget Constraints', fontsize=14)
         plt.yticks(fontsize=10)
         plt.xticks(fontsize=10)
+        ax.set_aspect('equal')
+        plt.grid(True, alpha=0.3)
+
         
         if save: plt.savefig("img/TEST_BW125_lora_sf.jpg")  # Removed {sf} from filename
         else: plt.show()

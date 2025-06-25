@@ -38,11 +38,17 @@ if __name__ == "__main__":
         plot_sf_channels(sf)
 
     #network.plot_ground_constraints()
-    network.plot_doppler_effect()
+    #network.plot_doppler_effect()
     #network.plot_visibility_time()
-    #network.plot_sf_linkbudget()
+    network.plot_sf_linkbudget()
     
     #network.plot_visibility_time_discrete()
     #network.plot_doppler_shift_discrete()
     #network.plot_doppler_rate_discrete()
 
+    #plot_visibility_vs_position()
+
+    #getSNR2()
+    #getSINR()
+
+    plot_lora_linkbudget()

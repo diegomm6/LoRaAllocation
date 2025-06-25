@@ -7,15 +7,20 @@ from src.mac.Scheduler import Scheduler
 class Opt2DModel(Scheduler):
 
     def __init__(self, numDevices, slottime, timeslots, numLRchannels, availableSF_data) -> None:
-        super().__init__(numDevices, slottime, timeslots, numLRchannels, availableSF_data)
+        no_lrfhss_availableSF_data = availableSF_data[:,:,:-2] # remove lrfhss
+        super().__init__(numDevices, slottime, timeslots, numLRchannels, no_lrfhss_availableSF_data)
 
 
     # solve the 2D model for all channels simultaneously
     def get_schedule(self):
 
         solution = self.solve2Dmodel()
-        schedules = [(i,p,q) for (i,p,q), _ in solution.items()]
-
+        schedules = []
+        for (i,p,q), _ in solution.items():
+            n = i % self.N
+            m = i // self.N + self.bestSF
+            schedules.append((n,m,p,q))
+            
         return schedules
 
 

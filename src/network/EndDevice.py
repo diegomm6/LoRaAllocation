@@ -7,7 +7,6 @@ class EndDevice():
         self.nodeId = id_
         self.lat = lat
         self.lon = lon
-        self.config = 3    # link budget configuration
         self.point = wgs84.latlon(self.lat, self.lon)
 
         # cached orbital dynamics data is updated whenever update_data is called
@@ -23,7 +22,7 @@ class EndDevice():
     def fail_status(self, sf):
 
         fail_status = []
-        rcvd_powers = [received_P_config(range_, self.config) for range_ in self.cached_ranges]
+        rcvd_powers = [received_power(range_) for range_ in self.cached_ranges]
         for shift, rate, P_r in zip(self.cached_doppler_shifts, self.cached_doppler_rates, rcvd_powers):
 
             if not linkbudget_success(P_r, sf):
@@ -56,7 +55,7 @@ class EndDevice():
         self.cached_doppler_shifts = shifts
         self.cached_doppler_rates = rates
 
-        rcvd_powers = [received_P_config(range_, self.config) for range_ in ranges]
+        rcvd_powers = [received_power(range_) for range_ in ranges]
         self.cached_availableSFs = [get_available_sf(shift, rate, P_r) for shift, rate, P_r
                                     in zip(shifts, rates, rcvd_powers)]
 

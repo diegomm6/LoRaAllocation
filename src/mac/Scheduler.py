@@ -19,11 +19,12 @@ class Scheduler():
 
         self.availableSF_per_node = availableSF_data
         self.bestSF = self.get_bestSF_overall()
- 
+
         #network.plot_heatmapSF(numDevices, t0, t1, self.slottime, False)
         #network.plot_availabeSF(t0, t1, self.slottime)
 
         self.delta = self.get_delta()
+        self.bestSF_n = self.get_best_SF_per_ed()
 
         self.xi_p_q = np.zeros((self.W, self.LRchannels), dtype=object)
         self.xi_p_q_m = np.zeros((self.W, self.LRchannels, self.M - self.bestSF), dtype=object)
@@ -146,10 +147,8 @@ class Scheduler():
     def get_total_time_perSF(self, schedules):
         
         transmissions = np.zeros((self.LRchannels, self.M, self.W))
-        for i,p,q in schedules:
-            m = (i // self.N) + self.bestSF
-            toa = self.T_m[m]
-            transmissions[q, m, p: p + toa] += 1
+        for n,m,p,q in schedules:
+            transmissions[q, m, p: p + self.T_m[m]] += 1
 
         any_device_support = np.max(self.availableSF_per_node, axis=0)
         sf_total_support = np.count_nonzero(any_device_support, axis=0)
@@ -161,17 +160,14 @@ class Scheduler():
 
     def get_supported_EDs_perSF(self, schedules):
     
-        bestSF_achieved_per_node = self.get_best_SF_per_ed()
+        bestSF_achieved_per_node = self.bestSF_n
         no_coverage_EDs = np.sum(bestSF_achieved_per_node == -1)
         competing_EDd_m = [np.sum(bestSF_achieved_per_node == m) for m in range(self.M)]
 
         transmitted_with_bestSF = np.zeros(self.M)
         transmitted_with_otherSF = np.zeros(self.M)
 
-        for i,p,q in schedules:
-            n = i % self.N
-            m = (i // self.N) + self.bestSF
-
+        for n,m,p,q in schedules:
             if m == bestSF_achieved_per_node[n]:
                 transmitted_with_bestSF[m] += 1
             else:
@@ -185,8 +181,7 @@ class Scheduler():
 
         collisions = 0
         transmissions = np.zeros((self.LRchannels, self.M, self.W))
-        for i,p,q in schedules:
-            m = (i // self.N) + self.bestSF
+        for n,m,p,q in schedules:
             toa = self.T_m[m]
             transmissions[q, m, p: p + toa] += 1
 
@@ -199,8 +194,7 @@ class Scheduler():
     def get_transmissions_per_ED(self, schedules):
 
         numTransmissions = np.zeros(self.N)
-        for i,p,q in schedules:
-            n = i % self.N
+        for n,m,p,q in schedules:
             numTransmissions[n] += 1
 
         return numTransmissions
@@ -212,16 +206,14 @@ class Scheduler():
     # get decoded tranmissions after capture probability
     def plot_transmissions_sf_status(self, schedules):
 
-        bestSF_achieved_per_node = self.get_best_SF_per_ed()
+        bestSF_achieved_per_node = self.bestSF_n
         no_coverage_EDs = np.sum(bestSF_achieved_per_node == -1)
         competing_EDd_m = [np.sum(bestSF_achieved_per_node == m) for m in range(self.M)]
 
         transmitted_with_bestSF = np.zeros(self.M)
         transmitted_with_otherSF = np.zeros(self.M)
 
-        for i,p,q in schedules:
-            n = i % self.N
-            m = (i // self.N) + self.bestSF
+        for n,m,p,q in schedules:
 
             if m == bestSF_achieved_per_node[n]:
                 transmitted_with_bestSF[m] += 1
@@ -249,15 +241,11 @@ class Scheduler():
         txs_per_channel = [0] * self.LRchannels
         transmissions = np.zeros((self.LRchannels, self.M, self.W))
 
-        for i,p,q in schedules:
-            n = i % self.N
-            m = (i // self.N) + self.bestSF
-            toa = self.T_m[m]
+        for n,m,p,q in schedules:
 
             #print(f"ED {n} SF {7+m} at time {p} on channel {q}")
-
             # Fill the schedule array for this device
-            transmissions[q, m, p: p + toa] += 1
+            transmissions[q, m, p: p + self.T_m[m]] += 1
             txs_per_channel[q] += 1
 
         numTXs = np.sum(transmissions, axis=0)
@@ -284,14 +272,10 @@ class Scheduler():
         txs_per_channel = [0] * self.FHSSchannels
         transmissions = np.zeros((self.FHSSchannels, self.C, self.W))
 
-        for i,p,q in schedules:
-            n = i % self.N
-            c = i // self.N
-            toa = self.T_c[c]
+        for n,c,p,q in schedules:
 
             #print(f"ED {n} CR{c}/3 at time {p} on channel {q}")
-
-            transmissions[q, c, p: p + toa] += 1
+            transmissions[q, c, p: p + self.T_c[c]] += 1
             txs_per_channel[q] += 1
 
         numTXs = np.sum(transmissions, axis=0)
@@ -324,15 +308,11 @@ class Scheduler():
         txs_per_channel = [0] * self.LRchannels
         transmissions = np.zeros((self.LRchannels, self.N, self.W))
 
-        for i,p,q in schedules:
-            n = i % self.N
-            m = (i // self.N) + self.bestSF
-            toa = self.T_m[m]
+        for n,m,p,q in schedules:
 
             #print(f"ED {n} sf {7+m} at time {p} in channel {q}")
-            
             # Fill the schedule array for this device
-            transmissions[q, n, p: p + toa] = 7+m
+            transmissions[q, n, p: p + self.T_m[m]] = 7+m
             txs_per_channel[q] += 1
 
 
@@ -361,15 +341,11 @@ class Scheduler():
         txs_per_channel = [0] * self.LRchannels
         transmissions = np.zeros((self.LRchannels, self.M, self.W))
 
-        for i,p,q in schedules:
-            n = i % self.N
-            m = (i // self.N) + self.bestSF
-            toa = self.T_m[m]
+        for n,m,p,q in schedules:
 
             #print(f"ED {n} SF {7+m} at time {p} on channel {q}")
-
             # Fill the schedule array for this device
-            transmissions[q, m, p: p + toa] += 1
+            transmissions[q, m, p: p + self.T_m[m]] += 1
             txs_per_channel[q] += 1
 
         for ch in range(self.LRchannels):
@@ -405,26 +381,21 @@ class Scheduler():
         norm = colors.BoundaryNorm(bounds, cmap.N)
 
         # Extract pairs and initialize schedules for each device
-        pairs = [(i, p, q) for (i, p, q), _ in schedules.items()]
+        pairs = [(n, m, p, q) for (n, m, p, q), _ in schedules.items()]
         transmissions = [np.zeros(self.W) for _ in range(self.N)]
 
 
         # Fill schedules based on transmissions
-        for i, p, q in pairs:
-            n = i % self.N         # Get device number
-            m = (i // self.N) + self.bestSF
-            duration = self.T_m[m] # Get duration for this configuration
+        for n, m, p, q in pairs:
 
             #print(f"ED {n} sf {7+m} at time {p} on channel {q}")
-            
-            # Fill the schedule array for this device
-            for t in range(p, p + duration):
+            for t in range(p, p + self.T_m[m]):
                 transmissions[n][t] = 7 + m
 
         laptime = self.slottime * self.W
 
         # Extract unique channel IDs
-        channels = sorted(set(q for _, _, q in pairs))
+        channels = sorted(set(q for _,_,_, q in pairs))
 
         # Create subplots for each channel
         fig, axs = plt.subplots(self.H, 1, figsize=(10, 6 * self.H), squeeze=False)

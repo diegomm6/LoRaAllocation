@@ -13,13 +13,14 @@ class Gateway:
         self.timeslots = timeslots
         self.numLRchannels = numLRchannels
         self.numFHSSchannels = numFHSSchannels
+        self.numSF = 6
 
         self.cached_sat_times = []
         self.cached_sat_lat = []
         self.cached_sat_lon = []
 
         # Small-scale fading
-        self.g_tx = np.random.exponential(scale=1.0, size=self.numDevices)
+        #self.g_tx = np.random.exponential(scale=1.0, size=self.timeslots)
 
 
     def generate_data(self, t0, t1):
@@ -76,28 +77,54 @@ class Gateway:
 
         r_alpha_tx = np.power(distances, -ALPHA)
 
-        tx_data = []
-        for i,p,q in schedules:
-            n = i % self.numDevices
-            m = i // self.numDevices
-            tx_data.append((n,m,p,q))
+        sinr_tx = np.zeros(len(schedules))
+        is_successful = np.zeros(len(schedules))
+        for tx1, (n1,m1,p1,q1) in enumerate(schedules):
 
-        sinr_tx = np.zeros(len(tx_data))
-        is_successful = np.zeros(len(tx_data))
-        for tx1, (n1,m1,p1,q1) in enumerate(tx_data):
-
-            signal = self.g_tx[tx1] * r_alpha_tx[tx1]
-            interference_noise = dBm2W(AWGN_VAR_DB) / dBm2W(TX_POWER)
-
-            for tx2, (n2,m2,p2,q2) in enumerate(tx_data):
+            signal = np.random.exponential(scale=1.0) * r_alpha_tx[tx1]
+            noise = dBm2W(AWGN_VAR_DB) / dBm2W(TX_POWER)
+            interference = 0
+            for tx2, (n2,m2,p2,q2) in enumerate(schedules):
                 if tx2 != tx1:
 
                     overlap = calculate_overlap(p1, self.ToA_m[m1], p2, self.ToA_m[m2], self.slottime)
-                    interference_noise += self.g_tx[tx2] * r_alpha_tx[tx2] * (overlap / self.ToA_m[m2])
+                    interference += np.random.exponential(scale=1.0) * r_alpha_tx[tx2] * (overlap / self.ToA_m[m2])
 
-            sinr = signal / interference_noise
+            sinr = signal / (interference + noise)
             sinr_tx[tx1] = mW2dBm(sinr)
             #print(mW2dBm(sinr_tx[tx1]*1e3))
             is_successful[tx1] = (sinr_tx[tx1] >= SINR_TH[m1])
 
         return is_successful, sinr_tx
+
+
+    # simple sinr model considers path loss
+    # collision only occurs if two tranmissions overlap in time, SF and channel
+    def calculate_sinr(self, schedules, distances):
+
+        rcvM = np.zeros((self.numLRchannels, self.numSF, self.timeslots))
+
+        # fill received matrix rcvM, where m is the SF, p is the timeslot and q is the channel
+        for n,m,p,q in schedules:
+            rcvM[q][m][p : p+self.ToA_m[m]] += np.ones((self.ToA_m[m]))
+
+        is_successful = np.zeros(len(schedules))
+        collided = np.zeros(len(schedules))
+        # given the time on air ToA_m for each SF, determine the collision status for each signal
+        for tx1, (n1,m1,p1,q1) in enumerate(schedules):
+
+            # if signal is not collided, calculate received power and compare with sensitivity
+            if rcvM[q1][m1][p1 : p1+self.ToA_m[m1]].sum() == self.ToA_m[m1]:
+ 
+                Pr = received_power(distances[tx1])
+                is_successful[tx1] = (Pr >= LR_SENSITIVITY[m1])
+
+            else:
+                collided[tx1] = 1
+
+        #print(f"\ncollided: {collided.sum()} of {len(tx_data)}")
+        #print(f"successful: {is_successful.sum()} of {len(tx_data)}")
+
+        return is_successful, 1
+
+

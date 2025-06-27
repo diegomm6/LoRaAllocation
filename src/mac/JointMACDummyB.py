@@ -48,7 +48,7 @@ class JointMACDummyB(Scheduler):
             # or use LRFHSS CR1/3 or CR2/3 with 50/50 probability
             else:
                 m = np.random.choice([6,7])
-                random_timeslot = np.random.randint(0, self.W)
+                random_timeslot = np.random.randint(0, self.W - self.T_m[-1])
                 lrfhss_scheduels.append((n, m, random_timeslot, 1))
         
         return lora_schedules, lrfhss_scheduels

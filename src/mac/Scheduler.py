@@ -38,6 +38,12 @@ class Scheduler():
                     self.xi_p_q_m[p][q][m] = self.get_xi_m(p,q,m)
 
 
+
+    # get schedule method must be implemented in derived classes
+    def get_schedule(self):
+        raise NotImplementedError()
+    
+
     def get_bestSF_overall(self):
 
         bestSF_overall = 15 # means no sf or cr coverage

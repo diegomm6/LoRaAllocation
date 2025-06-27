@@ -106,7 +106,19 @@ class Gateway:
 
         # fill received matrix rcvM, where m is the SF, p is the timeslot and q is the channel
         for n,m,p,q in schedules:
-            rcvM[q][m][p : p+self.ToA_m[m]] += np.ones((self.ToA_m[m]))
+            rcvM[q, m, p : p+self.ToA_m[m]] += np.ones((self.ToA_m[m]))
+
+        # print received matrix as heatmap for channel 0
+        if 0 :
+            heatmap = plt.imshow( rcvM[0], aspect='auto', cmap='hot', interpolation='nearest')
+            plt.xlabel('Timeslots', fontsize=12)
+            plt.ylabel('Spreading Factor (SF)', fontsize=12)
+            plt.title('Concurrent Transmissions on Channel 0', fontsize=14)
+            cbar = plt.colorbar(heatmap)
+            cbar.set_label('Number of Concurrent Transmissions', fontsize=10)
+            plt.yticks(ticks=np.arange(self.numSF), labels=[f'SF{7+i}' for i in range(self.numSF)])
+            plt.tight_layout()
+            plt.show()
 
         is_successful = np.zeros(len(schedules))
         collided = np.zeros(len(schedules))
@@ -122,8 +134,8 @@ class Gateway:
             else:
                 collided[tx1] = 1
 
-        #print(f"\ncollided: {collided.sum()} of {len(tx_data)}")
-        #print(f"successful: {is_successful.sum()} of {len(tx_data)}")
+        #print(f"\ncollided: {collided.sum()} of {len(schedules)}")
+        #print(f"successful: {is_successful.sum()} of {len(schedules)}")
 
         return is_successful, 1
 

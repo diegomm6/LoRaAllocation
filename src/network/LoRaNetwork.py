@@ -329,24 +329,20 @@ class LoRaNetwork():
 
         # Elevation angles and circles
         Eangles = [20, 40, 60, 80]  # degrees
+        linestyles = ['-', '--', '-.', ':']
         elevation_handles = []
-        for E in Eangles:
+        for i, E in enumerate(Eangles):
             radius = ground_distance(np.radians(E)) / 1e3  # Convert to km
-            circle = plt.Circle((0, 0), radius, fill=False, color='black', 
-                                linestyle='--', linewidth=2.5)
+            circle = plt.Circle((0, 0), radius, fill=False, color='black', linestyle=linestyles[i], linewidth=2.5)
             ax.add_patch(circle)
-            # Create proxy artist for legend
-            elevation_handles.append(plt.Line2D([0], [0], color='black', linestyle='--', 
-                                                label=f'{E}°', linewidth=2.5))
+            elevation_handles.append(plt.Line2D([0], [0], color='black', linestyle=linestyles[i], label=f'{E}°', linewidth=2.5))
 
         # Combine SF and elevation legends
         sf_handles, sf_labels = ax.get_legend_handles_labels()
         all_handles = sf_handles + elevation_handles
         all_labels = [h.get_label() for h in all_handles]
 
-        plt.legend(all_handles, all_labels, loc='upper right', fontsize=10,
-                title='SF / Elevation Angle', title_fontsize=11)
-
+        plt.legend(all_handles, all_labels, loc='upper right', fontsize=10, title='SF / Elevation Angle', title_fontsize=11)
         plt.xlabel('X Position [km]', fontsize=14)
         plt.ylabel('Y Position [km]', fontsize=14)
         plt.title('SF Link Budget Constraints', fontsize=14)

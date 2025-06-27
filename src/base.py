@@ -74,9 +74,9 @@ LR_SENSITIVITY = [-124.5, -127, -129.5, -132, -134.5, -137]  # sensitivity thres
 MAX_PL_LORA = [230, 230, 123 ,59, 59, 59]
 MAX_PL_LRFHSS = [58, 123]
 
-GAIN_TX     = 0         # transmitter antenna gain in db
-GAIN_RX     = 3        # receiver antenna gain in db
-TX_POWER    = 14        # transmitted power in db
+GAIN_TX     = 0      # transmitter antenna gain in db
+GAIN_RX     = 3      # receiver antenna gain in db
+TX_POWER    = 14     # transmitted power in db
 
 SINR_TH = [-6, -9, -12, -15, -17.5, -20] # SINR thresholds for 125 khz BW in dB
 
@@ -781,7 +781,7 @@ def plot_lora_linkbudget():
     plt.axhline(y=-134.5, color='gray', linestyle=(0, (3, 1, 1, 1)), label=f'SF11 Sensitivity')
     plt.axhline(y=-137, color='gray', linestyle=(0, (5, 10)), label='SF12 Sensitivity')
 
-    plt.title('Received Power vs Elevation Angle for Different LoRa Configurations', fontsize=14)
+    plt.title('Received Power vs Elevation Angle with FSPL', fontsize=14)
     plt.xlabel('Elevation Angle (degrees)', fontsize=12)
     plt.ylabel('Received Power (dBm)', fontsize=12)
     plt.grid(True)

@@ -25,10 +25,11 @@ COLORS2 = [
     '#FF0000',    # Red
     '#00FF00',    # Lime
     '#0000FF',    # Blue
-    '#FF00FF',    # Magenta
     '#00FFFF',    # Cyan
+    '#00CED1',    # Dark Turquoise
+    '#FF69B4',    # Hot Pink
+    '#FF00FF',    # Magenta
     '#FFA500',    # Orange
-    '#800080',    # Purple
     '#008000',    # Green
     '#FFD700',    # Gold
     '#FF69B4',    # Hot Pink
@@ -224,6 +225,14 @@ def LoRA_success_prob(sf, numNodes):
 
     return np.exp(- 4 * FR_L * ToA * SAT_V * density)
 
+
+# get maximum number of ED such the success is at given threshold
+def max_num_ED(sf, threshold=.5):    
+    ToA = lora_toa(PL_BYTES, sf)  # time on air in seconds
+    numerator = FR_AREA * np.log(1 / threshold)
+    denominator = 4 * FR_L * ToA * SAT_V
+
+    return numerator / denominator
 
 def max_nodes_for_success(sf, min_success_prob):
 

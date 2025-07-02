@@ -1,19 +1,19 @@
 from src.base import *
 from src.mac.Scheduler import Scheduler
 
-class JointMACDummyA(Scheduler):
+class AnySFrandom(Scheduler):
 
     def __init__(self, numDevices, slottime, timeslots, numLRchannels, availableSF_data) -> None:
         super().__init__(numDevices, slottime, timeslots, numLRchannels, availableSF_data)
 
 
-    def get_schedule(self):
+    def get_schedule(self, timeshift=0):
 
         lora_schedules = []
         lrfhss_scheduels = []
         for n in range(self.N):
 
-            random_timeslot = np.random.randint(0, self.W - self.T_m[-1])
+            random_timeslot = np.random.randint(0, self.W - self.T_m[-1]) + timeshift
             random_channel = np.random.choice(list(range(self.LRchannels)))
 
             # use LoRa SF11 or SF12 with 50/50 probability

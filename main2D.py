@@ -51,4 +51,4 @@ if __name__ == "__main__":
     #getSNR2()
     #getSINR()
 
-    plot_lora_linkbudget()
+    #plot_lora_linkbudget()

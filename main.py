@@ -18,12 +18,14 @@ save_sache = False
 network = DtSIoTNetwork(numDevices, t0, slottime, timeslots, numLRchannels,
                         numFHSSchannles, locationsfilename, datafile, save_sache)
 
+runs = 40
+uplink_period = 60 # seconds
+sizes = np.linspace(10,200,10,dtype=int)
+numEDs = 100
+
 #network.plot_bestSF_map()
 #network.plot_heatmapSF()
-
-uplink_period = 30 # seconds
 #network.plot_heatmapSF_ULperiods(uplink_period)
-network.schedule_multiple_window(20, uplink_period, 4)
 
-sizes = np.linspace(10,200,20,dtype=int)
-#network.schedule_single_window(sizes, 40)
+network.schedule_multiple_window(numEDs, uplink_period, runs, config=1)
+#network.schedule_single_window(sizes, runs, config=1)

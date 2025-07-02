@@ -159,7 +159,11 @@ class Scheduler():
         any_device_support = np.max(self.availableSF_per_node, axis=0)
         sf_total_support = np.count_nonzero(any_device_support, axis=0)
 
-        sf_total_usage = np.sum(transmissions, axis=(0, 2))
+        # total usage time without considering collision as more usage
+        filtered_txs = transmissions.copy()
+        filtered_txs[filtered_txs > 1] = 1
+
+        sf_total_usage = np.sum(filtered_txs, axis=(0, 2))
 
         return sf_total_support , sf_total_usage
 

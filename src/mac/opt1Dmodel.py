@@ -21,16 +21,17 @@ class Opt1DModel(Scheduler):
 
 
     # solve the 1D model iteratively for as many channels are available
-    def get_schedule(self):
+    def get_schedule(self, timeshift=0):
 
         original_delta = self.delta.copy()
+        lrfhss_scheduels = []
 
-        schedules = []
+        lora_schedules = []
         current_schedules = self.solve1Dmodel()
         for (i,p,q), _ in current_schedules.items():
             n = i % self.N
             m = i // self.N + self.bestSF
-            schedules.append((n,m,p,q))
+            lora_schedules.append((n, m , p + timeshift, q))
 
         q=1
         while q < self.LRchannels:
@@ -42,13 +43,13 @@ class Opt1DModel(Scheduler):
             for (i,p,_), _ in new_schedules.items():
                 n = i % self.N
                 m = i // self.N + self.bestSF
-                schedules.append((n,m,p,q))
+                lora_schedules.append((n, m , p + timeshift, q))
 
             current_schedules = new_schedules
             q+=1
 
         self.delta = original_delta
-        return schedules
+        return lora_schedules, lrfhss_scheduels
 
 
     def solve1Dmodel(self):

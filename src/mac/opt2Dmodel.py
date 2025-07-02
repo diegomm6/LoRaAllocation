@@ -12,16 +12,17 @@ class Opt2DModel(Scheduler):
 
 
     # solve the 2D model for all channels simultaneously
-    def get_schedule(self):
+    def get_schedule(self, timeshift=0):
 
         solution = self.solve2Dmodel()
-        schedules = []
+        lrfhss_scheduels = []
+        lora_schedules = []
         for (i,p,q), _ in solution.items():
             n = i % self.N
             m = i // self.N + self.bestSF
-            schedules.append((n,m,p,q))
+            lora_schedules.append((n, m , p + timeshift, q))
             
-        return schedules
+        return lora_schedules, lrfhss_scheduels
 
 
     def solve2Dmodel(self):

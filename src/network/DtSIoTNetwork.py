@@ -6,10 +6,14 @@ from src.mac.opt1Dmodel import Opt1DModel
 from src.mac.opt2Dmodel import Opt2DModel
 from src.mac.optLRFHSS import OptLRFHSS
 from src.mac.lorawanClassA import LorawanClassA
-from src.mac.JointMACDummyA import JointMACDummyA
-from src.mac.JointMACDummyB import JointMACDummyB
-from src.mac.JointMACDummyC import JointMACDummyC
 from src.mac.DistributedUP import DistributedUplinkPolicy
+
+from src.mac.AnySFrandom import AnySFrandom
+from src.mac.ValidSFrandom import ValidSFrandom
+from src.mac.BestSFonly import BestSFonly
+from src.mac.SequentialSF import SequentialSF
+from src.mac.ALOHAmax import ALOHAmax
+
 
 class DtSIoTNetwork():
 
@@ -35,6 +39,33 @@ class DtSIoTNetwork():
         self.initialize_data(datafile, save_cache)
 
 
+    def load_scheduler_config(self, config):
+
+        labels1 = ["Opt1D", "50/50 Any SF", "50/50 Valid SF", "Best SF", "Sequential SF", "ALOHA max"]
+        scheduler_configs1 = [
+            {'class': Opt1DModel, 'kwargs': {}},
+            {'class': AnySFrandom, 'kwargs': {}},
+            {'class': ValidSFrandom, 'kwargs': {}},
+            {'class': BestSFonly, 'kwargs': {'th': 0.4}},
+            {'class': SequentialSF, 'kwargs': {'th': 0.4}},
+            {'class': ALOHAmax, 'kwargs': {}}
+        ]
+
+        labels2 = ["Opt1DModel", "SequentialSF th=0.8", "SequentialSF th=0.6", "SequentialSF th=0.4", "SequentialSF th=0.2"]
+        scheduler_configs2 = [
+            {'class': Opt1DModel, 'kwargs': {}},
+            {'class': SequentialSF, 'kwargs': {'th': 0.8}},
+            {'class': SequentialSF, 'kwargs': {'th': 0.6}},
+            {'class': SequentialSF, 'kwargs': {'th': 0.4}},
+            {'class': SequentialSF, 'kwargs': {'th': 0.2}}
+        ]
+
+        if config==1:
+            return scheduler_configs1, labels1
+        elif config==2:
+            return scheduler_configs2, labels2
+        
+
     # for a given schedule calculate the distance at transmission
     # time for the corresponding end devices
     def get_distances_at_tx_time(self, schedules):
@@ -48,16 +79,49 @@ class DtSIoTNetwork():
     
 
     #########################################################################################
-    #########################################################################################
+    ##############################   SCHEDULING METHODS   ###################################
     #########################################################################################
 
-    def schedule_single_window(self, network_sizes, runs, range_based_order=False):
+    # get schduling results for a given scheduler, network size, uplink window
+    def run_scheduler(self, SchedulerClass: Scheduler, numEDs, windowslots, availableSF_data, runs,
+                      timeshift=0, scheduler_kwargs={}):
+
+        usage_time_all = np.zeros(self.M)
+        args = (numEDs, self.slottime, windowslots, self.numLRchannels, availableSF_data)
+        scheduler : Scheduler = SchedulerClass(*args, **scheduler_kwargs)
+
+        scheduled_txs = 0
+        successful_rxs = 0
+        support_time_all = np.zeros(self.M)
+        usage_time_all = np.zeros(self.M)
+
+        for r in range(runs):
+
+            schedules, _ = scheduler.get_schedule(timeshift)
+            distances_at_tx_time = self.get_distances_at_tx_time(schedules)
+            is_successful, sinr = self.gateway.calculate_sinr(schedules, distances_at_tx_time)
+            _, total_usage = scheduler.get_total_time_perSF(schedules)
+
+            scheduled_txs += len(schedules)
+            successful_rxs += is_successful.sum()
+            usage_time_all += total_usage / (self.numLRchannels * windowslots)
+
+        del scheduler
+        return scheduled_txs / runs, successful_rxs / runs, usage_time_all / runs
+
+
+    # get resulst for a list of network sizes comparing differents schedulers
+    def schedule_single_window(self, network_sizes, runs, config, range_based_order=False):
+
+        scheduler_configs, labels = self.load_scheduler_config(config)
+        num_methods = len(scheduler_configs)
+        num_runs = [1] + [runs] * (num_methods - 1)  # Only Opt1DModel runs once, others run multiple times
 
         samples = len(network_sizes)
-        scheduled_txs = np.zeros((4, samples))
-        successful_receptions = np.zeros((4, samples))
-        support_time_all = np.zeros((4, samples, self.M))
-        usage_time_all = np.zeros((4, samples, self.M))
+        scheduled_txs = np.zeros((num_methods, samples))
+        successful_rxs = np.zeros((num_methods, samples))
+        support_time_all = np.zeros((num_methods, samples, self.M))
+        usage_time_all = np.zeros((num_methods, samples, self.M))
 
         availableSF_data = np.array([ed.cached_availableSFs for ed in self.enddevices])
         availableSF_data = availableSF_data[:,:-1,:] # remove last timeslot
@@ -68,67 +132,65 @@ class DtSIoTNetwork():
             availableSF_data = availableSF_data[sorted_indices]
 
         for i, numEDs in enumerate(network_sizes):
+            print(f"running for {numEDs} EDs")
 
-            sub_availableSF_data = availableSF_data[:numEDs]
-            args = (numEDs, self.slottime, self.timeslots, self.numLRchannels, sub_availableSF_data)
+            for j in range(num_methods):
+                config = scheduler_configs[j]
+                args = (config['class'], numEDs, self.timeslots, availableSF_data[:numEDs], num_runs[j])
+                scheduled_txs[j,i], successful_rxs[j,i], usage_time_all[j,i] = self.run_scheduler(*args, scheduler_kwargs=config['kwargs'])
 
-            scheduler1D = Opt1DModel(*args)
-            schedulerJointDummyA = JointMACDummyA(*args)
-            schedulerJointDummyB = JointMACDummyB(*args)
-            schedulerJointDummyC = JointMACDummyC(*args)
 
-            # obtain optimal results only once
-            schedules = scheduler1D.get_schedule()
-            distances_at_tx_time = self.get_distances_at_tx_time(schedules)
-            is_successful, sinr = self.gateway.calculate_sinr(schedules, distances_at_tx_time)
-            scheduled_txs[0][i] = len(schedules) / numEDs
-            successful_receptions[0][i] = is_successful.sum() / numEDs
-            _, total_usage = scheduler1D.get_total_time_perSF(schedules)
-            usage_time_all[0][i] = total_usage / (self.numLRchannels * self.timeslots)
+        self.plot_TX_RX_results(network_sizes, scheduled_txs, successful_rxs, labels)
+        self.plot_usage_time(4, network_sizes, usage_time_all, labels)
+        self.plot_usage_time(5, network_sizes, usage_time_all, labels)
+        
 
-            # obtain joint dummy results average
-            for r in range(runs):
+    # get resulst for a number of EDs comparing differents schedulers
+    # and solve for each uplink window separately
+    def schedule_multiple_window(self, numEDs, uplink_period, runs, config, range_based_order=False):
 
-                lora_schedulesJointDummyA, _ = schedulerJointDummyA.get_schedule()
-                distances_at_tx_time = self.get_distances_at_tx_time(lora_schedulesJointDummyA)
-                is_successful, sinr = self.gateway.calculate_sinr(lora_schedulesJointDummyA, distances_at_tx_time)
-                scheduled_txs[1][i] += len(lora_schedulesJointDummyA) / numEDs
-                successful_receptions[1][i] += is_successful.sum() / numEDs
-                _, total_usage = schedulerJointDummyA.get_total_time_perSF(lora_schedulesJointDummyA)
-                usage_time_all[1][i] = total_usage / (self.numLRchannels * self.timeslots)
+        scheduler_configs, labels = self.load_scheduler_config(config)
+        beacon_time = int(uplink_period / self.slottime)
+        beacon_start = 0
+        beacon_end = beacon_time
+        numBeacons = self.timeslots // beacon_time
+        
+        num_methods = len(scheduler_configs)
+        num_runs = [1] + [runs] * (num_methods - 1)  # Only Opt1DModel runs once, others run multiple times
 
-                lora_schedulesJointDummyB, _ = schedulerJointDummyB.get_schedule()
-                distances_at_tx_time = self.get_distances_at_tx_time(lora_schedulesJointDummyB)
-                is_successful, sinr = self.gateway.calculate_sinr(lora_schedulesJointDummyB, distances_at_tx_time)
-                scheduled_txs[2][i] += len(lora_schedulesJointDummyB) / numEDs
-                successful_receptions[2][i] += is_successful.sum() / numEDs
-                _, total_usage = schedulerJointDummyB.get_total_time_perSF(lora_schedulesJointDummyB)
-                usage_time_all[2][i] = total_usage / (self.numLRchannels * self.timeslots)
+        scheduled_txs = np.zeros((num_methods, numBeacons))
+        successful_rxs = np.zeros((num_methods, numBeacons))
+        support_time_all = np.zeros((num_methods, self.M))
+        usage_time_all = np.zeros((num_methods, numBeacons, self.M))
 
-                lora_schedulesJointDummyC, _ = schedulerJointDummyC.get_schedule()
-                distances_at_tx_time = self.get_distances_at_tx_time(lora_schedulesJointDummyC)
-                is_successful, sinr = self.gateway.calculate_sinr(lora_schedulesJointDummyC, distances_at_tx_time)
-                scheduled_txs[3][i] += len(lora_schedulesJointDummyC) / numEDs
-                successful_receptions[3][i] += is_successful.sum() / numEDs
-                _, total_usage = schedulerJointDummyC.get_total_time_perSF(lora_schedulesJointDummyC)
-                usage_time_all[3][i] = total_usage / (self.numLRchannels * self.timeslots)
+        availableSF_data = np.array([ed.cached_availableSFs for ed in self.enddevices])
+        availableSF_data = availableSF_data[:,:-1,:] # remove last timeslot
 
-            del scheduler1D, schedulerJointDummyA, schedulerJointDummyB, schedulerJointDummyC
-            
-            print(f"done for {numEDs}")
+        if range_based_order:
+            distances_at_beginning = [ed.cached_ranges[0] for ed in self.enddevices]
+            sorted_indices = np.argsort(distances_at_beginning)
+            availableSF_data = availableSF_data[sorted_indices]
+
+        for b in range(numBeacons):
+            print(f"running for beacon {b}")
+            sub_availableSF_data = availableSF_data[:, beacon_start : beacon_end, :]
+
+            for j in range(num_methods):
+                config = scheduler_configs[j]
+                args = (config['class'], numEDs, beacon_time, sub_availableSF_data, num_runs[j], beacon_start)
+                scheduled_txs[j,b], successful_rxs[j,b], usage_time_all[j,b] = self.run_scheduler(*args, scheduler_kwargs=config['kwargs'])
+
+            beacon_start = beacon_end
+            beacon_end = beacon_start + beacon_time
 
 
         plt.figure(figsize=(10, 6))
-        plt.plot(network_sizes, scheduled_txs[0], c=COLORS1[0], label='TX Opt1D')
-        plt.plot(network_sizes, successful_receptions[0], c=COLORS1[0], linestyle='dashed', label='RX Opt1D')
-        plt.plot(network_sizes, scheduled_txs[1] / runs, c=COLORS1[1], label='TX Dummy 50/50')
-        plt.plot(network_sizes, successful_receptions[1] / runs, c=COLORS1[1], linestyle='dashed', label='RX Dummy 50/50')
-        plt.plot(network_sizes, scheduled_txs[2] / runs, c=COLORS1[2], label='TX Best SF')
-        plt.plot(network_sizes, successful_receptions[2] / runs, c=COLORS1[2], linestyle='dashed', label='RX Best SF')
-        plt.plot(network_sizes, scheduled_txs[3] / runs, c=COLORS1[4], label='TX Sequential SF')
-        plt.plot(network_sizes, successful_receptions[3] / runs, c=COLORS1[4], linestyle='dashed', label='RX Sequential SF')
-        plt.xlabel('Generated LoRa packets')
-        plt.ylabel('Ratio to created packets [%]')
+        #plt.plot(range(numBeacons), with_coverage, c='k', label='EDs with coverage')
+        for j in range(num_methods):
+            plt.plot(range(numBeacons), scheduled_txs[j]/numEDs, c=COLORS1[j], label=f'TX {labels[j]}')
+            plt.plot(range(numBeacons), successful_rxs[j]/numEDs, c=COLORS1[j], linestyle='dashed', label=f'RX {labels[j]}')
+        plt.xlabel('beacon number')
+        plt.ylabel('ratio to created packets [%]')
         plt.title(f'Sent & Received LoRa packets per beacon')
         plt.legend()
         plt.grid()
@@ -137,10 +199,8 @@ class DtSIoTNetwork():
 
 
         plt.figure(figsize=(10, 6))
-        plt.plot(network_sizes, successful_receptions[0] / scheduled_txs[0], c=COLORS1[0], label='Opt1D')
-        plt.plot(network_sizes, successful_receptions[1] / scheduled_txs[1], c=COLORS1[1], label='Dummy 50/50')
-        plt.plot(network_sizes, successful_receptions[2] / scheduled_txs[2], c=COLORS1[2], label='Best SF')
-        plt.plot(network_sizes, successful_receptions[3] / scheduled_txs[3], c=COLORS1[4], label='Sequential SF')
+        for j in range(num_methods):
+            plt.plot(range(numBeacons), successful_rxs[j] / scheduled_txs[j], c=COLORS1[j], label=f'{labels[j]}')
         plt.xlabel('Generated LoRa packets')
         plt.ylabel('PDR [%]')
         plt.title(f'Packet Delivery Ratio PDR')
@@ -148,161 +208,6 @@ class DtSIoTNetwork():
         plt.grid()
         plt.show()
         plt.close()
-
-
-        def plottime(m):
-            plt.figure(figsize=(10, 6))
-            plt.plot(network_sizes, usage_time_all[0,:,m], c=COLORS2[0], label=f'SF{m+7} Opt1D')
-            plt.plot(network_sizes, usage_time_all[1,:,m], c=COLORS2[1], label=f'SF{m+7} Dummy 50/50')
-            plt.plot(network_sizes, usage_time_all[2,:,m], c=COLORS2[2], label=f'SF{m+7} Best SF')
-            plt.plot(network_sizes, usage_time_all[3,:,m], c=COLORS2[3], label=f'SF{m+7} Sequential SF')
-            plt.xlabel('Number of EDs')
-            plt.ylabel('Time ratio [%]')
-            plt.title(f'Channel usage SF{m+7}')
-            plt.legend()
-            plt.grid()
-            plt.show()
-            plt.close()
-
-        plottime(4)
-        plottime(5)
-
-
-    # get schduling results for a given scheduler, network size, uplink window
-    def run_scheduler(self, SchedulerClass: Scheduler, numEDs, windowslots, availableSF_data, runs):
-
-        usage_time_all = np.zeros(self.M)
-        args = (numEDs, self.slottime, windowslots, self.numLRchannels, availableSF_data)
-        scheduler : Scheduler = SchedulerClass(*args)
-
-        scheduled_txs = 0
-        successful_rxs = 0
-        support_time_all = np.zeros(self.M)
-        usage_time_all = np.zeros(self.M)
-
-        for r in range(runs):
-
-            schedules = scheduler.get_schedule()
-            distances_at_tx_time = self.get_distances_at_tx_time(schedules)
-            is_successful, sinr = self.gateway.calculate_sinr(schedules, distances_at_tx_time)
-            _, total_usage = scheduler.get_total_time_perSF(schedules)
-
-            scheduled_txs += len(schedules) / numEDs
-            successful_rxs += is_successful.sum() / numEDs
-            usage_time_all += total_usage / (self.numLRchannels * self.timeslots)
-
-        del scheduler
-        return scheduled_txs / runs, successful_rxs / runs, usage_time_all / runs
-
-
-    #########################################################################################
-    #########################################################################################
-    #########################################################################################
-    
-    # solve the schdeuling for a given network size and scheduler
-    # and solve for each uplink window sepparetely
-    def schedule_multiple_window(self, network_size, uplink_period, runs, range_based_order=False):
-
-        beacon_time = int(uplink_period / self.slottime)
-        beacon_start = 0
-        beacon_end = beacon_time
-        numBeacons = self.timeslots // beacon_time
-
-        with_coverage = np.zeros(numBeacons)
-        scheduled_txs = np.zeros((4, numBeacons))
-        successful_receptions = np.zeros((4, numBeacons))
-        numTransmissions = np.zeros(network_size)
-
-        availableSF_data = np.array([ed.cached_availableSFs for ed in self.enddevices])
-        availableSF_data = availableSF_data[:,:-1,:] # remove last timeslot
-        
-        for b in range(numBeacons):
-
-            print(f"beacon start: {beacon_start}, beacon end: {beacon_end}")
-
-            if range_based_order:
-                distances_at_beacon_start = [ed.cached_ranges[beacon_start] for ed in self.enddevices]
-                sorted_indices = np.argsort(distances_at_beacon_start)
-                availableSF_data = availableSF_data[sorted_indices]
-
-            sub_availableSF_data = availableSF_data[:, beacon_start : beacon_end, :]
-            args = (network_size, self.slottime, beacon_time, self.numLRchannels, sub_availableSF_data)
-
-            scheduler1D = Opt1DModel(*args)
-            schedulerJointDummyA = JointMACDummyA(*args)
-            schedulerJointDummyB = JointMACDummyB(*args)
-            schedulerJointDummyC = JointMACDummyC(*args)
-
-            # obtain optimal results only once
-            schedules = scheduler1D.get_schedule()
-            distances_at_tx_time = self.get_distances_at_tx_time(schedules)
-            is_successful, sinr = self.gateway.calculate_sinr(schedules, distances_at_tx_time)
-            scheduled_txs[0][b] = len(schedules) / network_size
-            successful_receptions[0][b] = is_successful.sum() / network_size
-
-            with_coverage[b] = np.sum(scheduler1D.bestSF_n != -1)
-
-            # obtain joint dummy results average
-            for r in range(runs):
-
-                lora_schedulesJointDummyA, _ = schedulerJointDummyA.get_schedule()
-                distances_at_tx_time = self.get_distances_at_tx_time(lora_schedulesJointDummyA)
-                is_successful, sinr = self.gateway.calculate_sinr(lora_schedulesJointDummyA, distances_at_tx_time)
-                scheduled_txs[1][b] += len(lora_schedulesJointDummyA) / network_size
-                successful_receptions[1][b] += is_successful.sum() / network_size
-
-                lora_schedulesJointDummyB, _ = schedulerJointDummyB.get_schedule()
-                distances_at_tx_time = self.get_distances_at_tx_time(lora_schedulesJointDummyB)
-                is_successful, sinr = self.gateway.calculate_sinr(lora_schedulesJointDummyB, distances_at_tx_time)
-                scheduled_txs[2][b] += len(lora_schedulesJointDummyB) / network_size
-                successful_receptions[2][b] += is_successful.sum() / network_size
-
-                lora_schedulesJointDummyC, _ = schedulerJointDummyC.get_schedule()
-                distances_at_tx_time = self.get_distances_at_tx_time(lora_schedulesJointDummyC)
-                is_successful, sinr = self.gateway.calculate_sinr(lora_schedulesJointDummyC, distances_at_tx_time)
-                scheduled_txs[3][b] += len(lora_schedulesJointDummyC) / network_size
-                successful_receptions[3][b] += is_successful.sum() / network_size
-
-                numTransmissions = np.add(numTransmissions, schedulerJointDummyB.get_transmissions_per_ED(lora_schedulesJointDummyB))
-
-            beacon_start = beacon_end
-            beacon_end = beacon_start + beacon_time
-
-            del scheduler1D, schedulerJointDummyA, schedulerJointDummyB, schedulerJointDummyC
-            print(f"done for beacon {b}")
-
-
-        plt.figure(figsize=(10, 6))
-        plt.plot(range(numBeacons), with_coverage, c='k', label='EDs with coverage')
-        plt.plot(range(numBeacons), scheduled_txs[0], c=COLORS1[0], label='TX Opt1D')
-        plt.plot(range(numBeacons), successful_receptions[0], c=COLORS1[0], linestyle='dashed', label='RX Opt1D')
-        plt.plot(range(numBeacons), scheduled_txs[1] / runs, c=COLORS1[1], label='TX Dummy 50/50')
-        plt.plot(range(numBeacons), successful_receptions[1] / runs, c=COLORS1[1], linestyle='dashed', label='RX Dummy 50/50')
-        plt.plot(range(numBeacons), scheduled_txs[2] / runs, c=COLORS1[2], label='TX Best SF')
-        plt.plot(range(numBeacons), successful_receptions[2] / runs, c=COLORS1[2], linestyle='dashed', label='RX Best SF')
-        plt.plot(range(numBeacons), scheduled_txs[3] / runs, c=COLORS1[4], label='TX Sequential SF')
-        plt.plot(range(numBeacons), successful_receptions[3] / runs, c=COLORS1[4], linestyle='dashed', label='RX Sequential SF')
-        plt.xlabel('beacon number')
-        plt.ylabel('ratio to created packets [%]')
-        plt.title(f'Sent & Received LoRa packets per beacon')
-        plt.legend()
-        plt.grid()
-        plt.show()
-
-        plt.close()
-
-        if 0:
-            numTransmissions /= runs
-            # Count the frequency of each transmission count
-            unique_counts, frequencies = np.unique(numTransmissions, return_counts=True)
-            plt.figure(figsize=(8, 6))
-            plt.bar(unique_counts, frequencies, color='skyblue', edgecolor='black')
-            plt.xlabel('Number of Transmissions', fontsize=12)
-            plt.ylabel('Number of Devices', fontsize=12)
-            plt.title('Number of Devices per Transmission Count', fontsize=14)
-            plt.xticks(unique_counts)
-            plt.show()
-
 
     ###########################################################################
     ########################  Simulation Data Methods  ########################
@@ -390,6 +295,60 @@ class DtSIoTNetwork():
     ###########################################################################
     ############################  Plotting Methods  ###########################
     ###########################################################################
+
+    def plot_TX_RX_results(self, size_list, txs, rxs, labels):
+
+        num_methods = len(labels)
+        plt.figure(figsize=(10, 6))
+        for j in range(num_methods):
+            plt.plot(size_list, txs[j]/size_list, c=COLORS1[j], label=f'TX {labels[j]}')
+            plt.plot(size_list, rxs[j]/size_list, c=COLORS1[j], linestyle='dashed', label=f'RX {labels[j]}')
+
+        plt.xlabel('Generated LoRa packets')
+        plt.ylabel('Ratio to created packets [%]')
+        plt.title(f'Sent & Received LoRa packets per beacon')
+        plt.legend()
+        plt.grid()
+        plt.show()
+        plt.close()
+
+        plt.figure(figsize=(10, 6))
+        for j in range(num_methods):
+            plt.plot(20*size_list, 20*rxs[j], c=COLORS1[j], label=f'{labels[j]}')
+        plt.xlabel('Generated Payload data [bytes]')
+        plt.ylabel('Received Payload data [bytes]')
+        plt.title(f'Throughput')
+        plt.legend()
+        plt.grid()
+        plt.show()
+        plt.close()
+
+        plt.figure(figsize=(10, 6))
+        for j in range(num_methods):
+            plt.plot(size_list, rxs[j] / txs[j], c=COLORS1[j], label=f'{labels[j]}')
+        plt.xlabel('Generated LoRa packets')
+        plt.ylabel('PDR [%]')
+        plt.title(f'Packet Delivery Ratio PDR')
+        plt.legend()
+        plt.grid()
+        plt.show()
+        plt.close()
+
+
+    def plot_usage_time(self, m, size_list, usage_time_all, labels):
+
+        num_methods = len(labels)
+        plt.figure(figsize=(10, 6))
+        for j in range(num_methods):
+            plt.plot(size_list, usage_time_all[j,:,m], label=f'SF{m+7} {labels[j]}')
+        plt.xlabel('Number of EDs')
+        plt.ylabel('Time ratio [%]')
+        plt.title(f'Channel usage SF{m+7}')
+        plt.legend()
+        plt.grid()
+        plt.show()
+        plt.close()
+
 
     def plot_bestSF_ocurrences(self):
 

@@ -40,7 +40,7 @@ if __name__ == "__main__":
     #network.plot_ground_constraints()
     #network.plot_doppler_effect()
     #network.plot_visibility_time()
-    #network.plot_sf_linkbudget()
+    network.plot_sf_linkbudget(True)
     
     #network.plot_visibility_time_discrete()
     #network.plot_doppler_shift_discrete()
@@ -51,4 +51,4 @@ if __name__ == "__main__":
     #getSNR2()
     #getSINR()
 
-    #plot_lora_linkbudget()
+    plot_lora_linkbudget()

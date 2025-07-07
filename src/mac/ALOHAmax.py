@@ -3,7 +3,7 @@ from src.mac.Scheduler import Scheduler
 
 class ALOHAmax(Scheduler):
 
-    def __init__(self, numDevices, slottime, timeslots, numLRchannels, availableSF_data) -> None:
+    def __init__(self, numDevices, slottime, timeslots, numLRchannels, availableSF_data, mode=0) -> None:
         super().__init__(numDevices, slottime, timeslots, numLRchannels, availableSF_data)
         
         self.aloha_max_n = np.array([self.W / (2 * self.T_m[m]) for m in range(self.M)])
@@ -11,6 +11,11 @@ class ALOHAmax(Scheduler):
         self.competitors_m = self.get_competitors()
         self.real_competitors_m = self.get_real_competitors()
         self.cumulative_competitors_m = self.get_cumulative_competitors()
+
+        # two operation model
+        # mode=0 uses the total network size to calculate tx probability
+        # mode=1 uses the number of competitors for each SF to calculate tx probability 
+        self.mode = mode
 
 
     # get a list of available SF for each node
@@ -76,22 +81,22 @@ class ALOHAmax(Scheduler):
             used_lora = False
             while (m_n <= 5 and not used_lora):
 
-                q = min(1, self.aloha_max_n[m_n] / self.cumulative_competitors_m[m_n - self.bestSF])
+                num_interferes = self.N
+                if self.mode: num_interferes = self.cumulative_competitors_m[m_n - self.bestSF]
+
+                q = min(1, self.aloha_max_n[m_n] / num_interferes)
                 if random.random() < q:
 
                     i = n + (m_n - self.bestSF) * self.N
                     possible_schedules = np.where(self.delta[i][:])[0]
 
                     # if this SF is not available anytime, move to the next one
-                    if not possible_schedules.any():
-                        m_n += 1
-                        continue
+                    if possible_schedules.any():
+                        random_timeslot = np.random.choice(possible_schedules) + timeshift
+                        random_channel = np.random.choice(list(range(self.LRchannels)))
 
-                    random_timeslot = np.random.choice(possible_schedules) + timeshift
-                    random_channel = np.random.choice(list(range(self.LRchannels)))
-
-                    lora_schedules.append((n, m_n, random_timeslot, random_channel))
-                    used_lora = True
+                        lora_schedules.append((n, m_n, random_timeslot, random_channel))
+                        used_lora = True
                 
                 m_n += 1
 

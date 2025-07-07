@@ -60,21 +60,17 @@ class SequentialSF(Scheduler):
             while (m_n <= 5 and not used_lora):
 
                 maxEDs_th = max_num_ED(m_n+7, self.threshold) / self.cumulative_competitors_m[m_n - self.bestSF]
-                if random.random() <  (random.random() < maxEDs_th):
+                if random.random() < maxEDs_th:
 
                     i = n + (m_n - self.bestSF) * self.N
                     possible_schedules = np.where(self.delta[i][:])[0]
 
-                    # if this SF is not available anytime, move to the next one
-                    if not possible_schedules.any():
-                        m_n += 1
-                        continue 
+                    if possible_schedules.any():
+                        random_timeslot = np.random.choice(possible_schedules) + timeshift
+                        random_channel = np.random.choice(list(range(self.LRchannels)))
 
-                    random_timeslot = np.random.choice(possible_schedules) + timeshift
-                    random_channel = np.random.choice(list(range(self.LRchannels)))
-
-                    lora_schedules.append((n, m_n, random_timeslot, random_channel))
-                    used_lora = True
+                        lora_schedules.append((n, m_n, random_timeslot, random_channel))
+                        used_lora = True
                 
                 m_n += 1
 

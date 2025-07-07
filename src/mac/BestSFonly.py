@@ -26,15 +26,10 @@ class BestSFonly(Scheduler):
         for n in range(self.N):
 
             m_n = self.bestSF_n[n] # m_n: best SF for ED n
-
-            # skip nodes without link support
-            if m_n == -1: continue
-
-            lora_support = True
-            if m_n > 5: lora_support = False
+            if m_n == -1: continue # skip nodes without link support
 
             maxEDs_th = max_num_ED(m_n+7, self.threshold) / self.competitors_m[m_n - self.bestSF]
-            if lora_support and (random.random() < maxEDs_th):
+            if (m_n <= 5) and (random.random() < maxEDs_th):
 
                 i = n + (m_n - self.bestSF) * self.N
                 possible_schedules = np.where(self.delta[i][:])[0]

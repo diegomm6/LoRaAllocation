@@ -29,14 +29,14 @@ class ValidSFrandom(Scheduler):
         lrfhss_scheduels = []
         for n in range(self.N):
 
+            possible_m = np.where(self.SFavailability[n])[0]
+
             # use LoRa SF11 or SF12 with 50/50 probability
-            if random.random() < 0.5:
+            if random.random() < 0.5 and  possible_m.size > 0:
 
-                possible_m = np.where(self.SFavailability[n])[0]
-                if possible_m.size == 0: continue
                 m = np.random.choice(possible_m) + self.bestSF
-
                 i = n + (m - self.bestSF) * self.N
+                
                 possible_schedules = np.where(self.delta[i][:])[0]
                 random_timeslot = np.random.choice(possible_schedules) + timeshift
                 random_channel = np.random.choice(list(range(self.LRchannels)))

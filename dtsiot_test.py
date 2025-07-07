@@ -12,11 +12,11 @@ points = [
 ]
 
 ts = load.timescale()
-t0 = ts.utc(2025,6,2)
-t1 = ts.utc(2025,6,3)
+t0 = ts.utc(2025,6,2)  # 15  16
+t1 = ts.utc(2025,6,3)  # 22  19
 delta = 20
 
-altitude_degrees = 0.0
+altitude_degrees = 10.0
 lat, lon = points[0]
 point = wgs84.latlon(lat, lon)
 
@@ -28,7 +28,7 @@ point = wgs84.latlon(lat, lon)
 
 #plot_enddevices(points)
 
-#plot_best_satellite_passes(points, t0, t1)
+plot_best_satellite_passes(points, t0, t1)
 
 #plot_sat_track(points, t0, t1, delta)
 
@@ -65,7 +65,7 @@ save_sache = False
 network = DtSIoTNetwork(numDevices, t0, slottime, timeslots, 1,
                         1, locationsfilename, datafile, save_sache)
 
-network.plot_bestSF_map()
+#network.plot_bestSF_map()
 #network.plot_heatmapSF()
 #network.plot_bestSF_ocurrences()
 #network.plot_availableSF_map(11)

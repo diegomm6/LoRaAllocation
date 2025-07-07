@@ -5,7 +5,6 @@ from src.mac.Scheduler import Scheduler
 from src.mac.opt1Dmodel import Opt1DModel
 from src.mac.opt2Dmodel import Opt2DModel
 from src.mac.optLRFHSS import OptLRFHSS
-from src.mac.lorawanClassA import LorawanClassA
 from src.mac.DistributedUP import DistributedUplinkPolicy
 
 from src.mac.AnySFrandom import AnySFrandom
@@ -41,17 +40,18 @@ class DtSIoTNetwork():
 
     def load_scheduler_config(self, config):
 
-        labels1 = ["Opt1D", "50/50 Any SF", "50/50 Valid SF", "Best SF", "Sequential SF", "ALOHA max"]
+        labels1 = ["opt1D", "class A", "class A Valid SF", "success best", "success seq", "max tput", "max tput int"]
         scheduler_configs1 = [
             {'class': Opt1DModel, 'kwargs': {}},
             {'class': AnySFrandom, 'kwargs': {}},
             {'class': ValidSFrandom, 'kwargs': {}},
             {'class': BestSFonly, 'kwargs': {'th': 0.4}},
             {'class': SequentialSF, 'kwargs': {'th': 0.4}},
-            {'class': ALOHAmax, 'kwargs': {}}
+            {'class': ALOHAmax, 'kwargs': {'mode': 0}},
+            {'class': ALOHAmax, 'kwargs': {'mode': 1}}
         ]
 
-        labels2 = ["Opt1DModel", "SequentialSF th=0.8", "SequentialSF th=0.6", "SequentialSF th=0.4", "SequentialSF th=0.2"]
+        labels2 = ["opt1D", "th=0.8", "th=0.6", "th=0.4", "th=0.2"]
         scheduler_configs2 = [
             {'class': Opt1DModel, 'kwargs': {}},
             {'class': SequentialSF, 'kwargs': {'th': 0.8}},
@@ -183,31 +183,9 @@ class DtSIoTNetwork():
             beacon_start = beacon_end
             beacon_end = beacon_start + beacon_time
 
+        
+        self.beacon_results_plots(scheduled_txs, successful_rxs, labels)
 
-        plt.figure(figsize=(10, 6))
-        #plt.plot(range(numBeacons), with_coverage, c='k', label='EDs with coverage')
-        for j in range(num_methods):
-            plt.plot(range(numBeacons), scheduled_txs[j]/numEDs, c=COLORS1[j], label=f'TX {labels[j]}')
-            plt.plot(range(numBeacons), successful_rxs[j]/numEDs, c=COLORS1[j], linestyle='dashed', label=f'RX {labels[j]}')
-        plt.xlabel('beacon number')
-        plt.ylabel('ratio to created packets [%]')
-        plt.title(f'Sent & Received LoRa packets per beacon')
-        plt.legend()
-        plt.grid()
-        plt.show()
-        plt.close()
-
-
-        plt.figure(figsize=(10, 6))
-        for j in range(num_methods):
-            plt.plot(range(numBeacons), successful_rxs[j] / scheduled_txs[j], c=COLORS1[j], label=f'{labels[j]}')
-        plt.xlabel('Generated LoRa packets')
-        plt.ylabel('PDR [%]')
-        plt.title(f'Packet Delivery Ratio PDR')
-        plt.legend()
-        plt.grid()
-        plt.show()
-        plt.close()
 
     ###########################################################################
     ########################  Simulation Data Methods  ########################
@@ -299,54 +277,120 @@ class DtSIoTNetwork():
     def plot_TX_RX_results(self, size_list, txs, rxs, labels):
 
         num_methods = len(labels)
-        plt.figure(figsize=(10, 6))
+        plt.figure(figsize=(8, 8))
         for j in range(num_methods):
             plt.plot(size_list, txs[j]/size_list, c=COLORS1[j], label=f'TX {labels[j]}')
             plt.plot(size_list, rxs[j]/size_list, c=COLORS1[j], linestyle='dashed', label=f'RX {labels[j]}')
 
-        plt.xlabel('Generated LoRa packets')
-        plt.ylabel('Ratio to created packets [%]')
-        plt.title(f'Sent & Received LoRa packets per beacon')
-        plt.legend()
+        plt.xlabel('Generated LoRa packets',fontsize=16)
+        plt.ylabel('Ratio to created packets [%]',fontsize=16)
+        plt.title(f'Sent & Received LoRa packets per beacon',fontsize=18)
+        plt.legend(fontsize=12)
+        plt.xticks(fontsize=12)
+        plt.yticks(fontsize=12)
+        plt.legend(fontsize=12)
         plt.grid()
-        plt.show()
+        #plt.show()
+        plt.savefig("window_packets.pdf")
         plt.close()
 
-        plt.figure(figsize=(10, 6))
+        plt.figure(figsize=(8, 8))
         for j in range(num_methods):
             plt.plot(20*size_list, 20*rxs[j], c=COLORS1[j], label=f'{labels[j]}')
-        plt.xlabel('Generated Payload data [bytes]')
-        plt.ylabel('Received Payload data [bytes]')
-        plt.title(f'Throughput')
-        plt.legend()
+        plt.xlabel('Generated Payload data [bytes]',fontsize=16)
+        plt.ylabel('Received Payload data [bytes]',fontsize=16)
+        plt.title(f'Throughput',fontsize=18)
+        plt.legend(fontsize=12)
+        plt.xticks(fontsize=12)
+        plt.yticks(fontsize=12)
+        plt.legend(fontsize=12)
         plt.grid()
-        plt.show()
+        #plt.show()
+        plt.savefig("window_throughput.pdf")
         plt.close()
 
-        plt.figure(figsize=(10, 6))
+        plt.figure(figsize=(8, 8))
         for j in range(num_methods):
             plt.plot(size_list, rxs[j] / txs[j], c=COLORS1[j], label=f'{labels[j]}')
-        plt.xlabel('Generated LoRa packets')
-        plt.ylabel('PDR [%]')
-        plt.title(f'Packet Delivery Ratio PDR')
-        plt.legend()
+        plt.xlabel('Generated LoRa packets',fontsize=16)
+        plt.ylabel('PDR [%]',fontsize=16)
+        plt.title(f'Packet Delivery Ratio PDR',fontsize=18)
+        plt.legend(fontsize=12)
+        plt.xticks(fontsize=12)
+        plt.yticks(fontsize=12)
+        plt.legend(fontsize=12)
         plt.grid()
-        plt.show()
+        #plt.show()
+        plt.savefig("window_pdr.pdf")
         plt.close()
 
 
     def plot_usage_time(self, m, size_list, usage_time_all, labels):
 
         num_methods = len(labels)
-        plt.figure(figsize=(10, 6))
+        plt.figure(figsize=(8, 8))
         for j in range(num_methods):
             plt.plot(size_list, usage_time_all[j,:,m], label=f'SF{m+7} {labels[j]}')
-        plt.xlabel('Number of EDs')
-        plt.ylabel('Time ratio [%]')
-        plt.title(f'Channel usage SF{m+7}')
-        plt.legend()
+        plt.xlabel('Number of EDs', fontsize=16)
+        plt.ylabel('Time ratio [%]', fontsize=16)
+        plt.title(f'Channel usage SF{m+7}', fontsize=18)
+        plt.legend(fontsize=12)
+        plt.xticks(fontsize=12)
+        plt.yticks(fontsize=12)
+        plt.legend(fontsize=12)
+        plt.grid()
+        #plt.show()
+        plt.savefig(f"window_times_SF{m+7}.pdf")
+        plt.close()
+
+
+    def beacon_results_plots(self, txs, rxs, labels):
+
+        num_methods, numBeacons = txs.shape
+
+        plt.figure(figsize=(8, 8))
+        #plt.plot(range(numBeacons), with_coverage, c='k', label='EDs with coverage')
+        for j in range(num_methods):
+            plt.plot(range(numBeacons), txs[j]/self.numDevices, c=COLORS1[j], label=f'TX {labels[j]}')
+            plt.plot(range(numBeacons), rxs[j]/self.numDevices, c=COLORS1[j], linestyle='dashed', label=f'RX {labels[j]}')
+        plt.xlabel('beacon number', fontsize=16)
+        plt.ylabel('ratio to created packets [%]', fontsize=16)
+        plt.title(f'Sent & Received LoRa packets per beacon', fontsize=18)
+        plt.xticks(fontsize=12)
+        plt.yticks(fontsize=12)
+        plt.legend(fontsize=12)
+        plt.tight_layout()
         plt.grid()
         plt.show()
+        #plt.savefig("beacon_packets.pdf")
+        plt.close()
+
+        plt.figure(figsize=(8, 8))
+        for j in range(num_methods):
+            plt.plot(range(numBeacons), 20*rxs[j], c=COLORS1[j], label=f'{labels[j]}')
+        plt.xlabel('beacon number', fontsize=16)
+        plt.ylabel('Received Payload data [bytes]', fontsize=16)
+        plt.title(f'Throughput', fontsize=18)
+        plt.xticks(fontsize=12)
+        plt.yticks(fontsize=12)
+        plt.legend(fontsize=12)
+        plt.grid()
+        plt.show()
+        #plt.savefig("beacon_throughout.pdf")
+        plt.close()
+
+        plt.figure(figsize=(8, 8))
+        for j in range(num_methods):
+            plt.plot(range(numBeacons), rxs[j] / txs[j], c=COLORS1[j], label=f'{labels[j]}')
+        plt.xlabel('beacon number', fontsize=16)
+        plt.ylabel('PDR [%]', fontsize=16)
+        plt.title(f'Packet Delivery Ratio PDR', fontsize=18)
+        plt.xticks(fontsize=12)
+        plt.yticks(fontsize=12)
+        plt.legend(fontsize=12)
+        plt.grid()
+        plt.show()
+        #plt.savefig("beacons_pdr.pdf")
         plt.close()
 
 
@@ -431,6 +475,7 @@ class DtSIoTNetwork():
         plt.xlabel('Lap Time [seconds]')
         plt.ylabel('Device')
         plt.title('Visibility window with Best Data Rate per End Device')
+        plt.tight_layout()
         plt.show()
         #plt.savefig("img/visibilty_example2.jpg")
 
@@ -451,7 +496,7 @@ class DtSIoTNetwork():
         plot_data = bestSF_per_node.astype(float)  # Convert to float to use NaN
         plot_data[plot_data == 0] = np.nan
         
-        plt.figure(figsize=(10, 6))
+        plt.figure(figsize=(10, 8))
         
         colors_list = ['blue', 'cyan', 'yellowgreen', 'red']  # SF10, SF11, SF12, LRFHSS
         cmap = colors.ListedColormap(colors_list)
@@ -466,20 +511,22 @@ class DtSIoTNetwork():
         
         cbar = plt.colorbar(im, ticks=[10, 11, 12, 13.5])  # Added SF10 tick
         cbar.set_label('DR', fontsize=12)
+        cbar.ax.tick_params(labelsize=12)
         cbar.ax.set_yticklabels(['SF10', 'SF11', 'SF12', 'LRFHSS'])  # Added SF10 label
         
         # Add vertical lines for uplink phases
         for i in range(1, int(laptime / uplink_period)):
             plt.axvline(x=i * uplink_period, color='black', linestyle='--')
         
-        plt.xlabel('Lap Time [seconds]')
-        plt.ylabel('Device')
-        plt.title('Visibility window with Best Data Rate per End Device')
+        plt.xlabel('Lap Time [seconds]', fontsize=12)
+        plt.ylabel('Device', fontsize=12)
+        plt.title('Visibility window with Best Data Rate per End Device', fontsize=14)
         
         # Make sure the background is white
         ax = plt.gca()
         ax.set_facecolor('white')
-        plt.show()
+        plt.savefig("beacons.pdf")
+        #plt.show()
 
 
     def plot_bestSF_map(self):

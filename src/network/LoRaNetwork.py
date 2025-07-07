@@ -352,7 +352,7 @@ class LoRaNetwork():
         plt.grid(True, alpha=0.3)
 
         
-        if save: plt.savefig("img/TEST_BW125_lora_sf.jpg")  # Removed {sf} from filename
+        if save: plt.savefig("img/TEST_BW125_lora_sf.pdf")  # Removed {sf} from filename
         else: plt.show()
 
 

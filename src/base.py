@@ -780,7 +780,7 @@ def plot_lora_linkbudget():
     # Calculate received power for different configurations
     P_r = received_power(distances)
 
-    plt.figure(figsize=(10,6))
+    plt.figure(figsize=(8,8))
     plt.plot(elevation_angles, P_r, color='red')
 
     plt.axhline(y=-124.5, color='gray', linestyle=':', label=f'SF7 Sensitivity')
@@ -795,9 +795,9 @@ def plot_lora_linkbudget():
     plt.ylabel('Received Power (dBm)', fontsize=12)
     plt.grid(True)
     plt.legend()
-    plt.tight_layout()
-    plt.show()
-    #plt.savefig("linkbudget.pdf")
+    #plt.tight_layout()
+    #plt.show()
+    plt.savefig("linkbudget.pdf")
 
 
 # example:
@@ -1025,7 +1025,7 @@ def plot_dtsiot_scenario(points, lap_times):
 
     # plot satellite tracks
     for t0, t1 in lap_times:
-        plot_laptrack(t0, t1)
+        plot_laptrack(t0, t1, 10)
 
     ax.set_extent([FR_E-10, FR_W+10, FR_S-10, FR_N+10], crs=ccrs.PlateCarree())
     plt.title('Best Satellite Trajectories and End-devices', fontsize=14)

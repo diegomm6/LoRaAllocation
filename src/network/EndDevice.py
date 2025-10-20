@@ -46,9 +46,9 @@ class EndDevice():
         return fail_status
 
 
-    def generate_data(self, t0, t1, slottime):
+    def generate_data(self, satname, t0, t1, slottime):
         
-        elevation, times, ranges, shifts, rates = get_dopplereffect(self.point, t0, t1, slottime)
+        elevation, times, ranges, shifts, rates = get_dopplereffect(satname, self.point, t0, t1, slottime)
         self.cached_elevation = elevation
         self.cached_times = times
         self.cached_ranges = ranges

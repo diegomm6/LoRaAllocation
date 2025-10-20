@@ -10,6 +10,7 @@ import cartopy.feature as cfeature
 from skyfield.api import load, wgs84
 from datetime import datetime, timedelta
 from scipy.special import i0  # Modified Bessel function of first kind
+import hashlib
 
 
 KINEIS_CONSTELLATION = ['KINEIS-1A', 'KINEIS-1B', 'KINEIS-1C', 'KINEIS-1D', 'KINEIS-1E',
@@ -547,9 +548,9 @@ def read_locations(filename="locations.txt"):
 # between the satellite and a given point with lat, lon coordinates
 # during the time window [t0, t1]
 # a tuple is composed as (rise_time, culminate_time, set_time)
-def get_satellite_events(point, t0, t1, altitude_degrees):
+def get_satellite_events(satname, point, t0, t1, altitude_degrees):
 
-    satellite = load_satellite()
+    satellite = load_satellite(satname)
     t, events = satellite.find_events(point, t0, t1, altitude_degrees=altitude_degrees)
 
     satellite_passes = []
@@ -572,9 +573,9 @@ def get_satellite_events(point, t0, t1, altitude_degrees):
 
 # returns the elevation, range, doppler shift, doppler rate and time vector
 # for a given point with lat, lon coordinates during the time window [t0, t1]
-def get_dopplereffect(point, t0, t1, deltatime=1):
+def get_dopplereffect(satname, point, t0, t1, deltatime=1):
 
-    satellite = load_satellite()
+    satellite = load_satellite(satname)
     difference = satellite - point
 
     times = []
@@ -607,10 +608,10 @@ def get_dopplereffect(point, t0, t1, deltatime=1):
     return elevation, times, ranges, doppler_shifts, doppler_rates
 
 
-def get_bestSF_coverage_time(lat, lon, t0, t1):
+def get_bestSF_coverage_time(satname, lat, lon, t0, t1):
 
     point = wgs84.latlon(lat, lon)
-    satellite_passes = get_satellite_events(point, t0, t1, altitude_degrees=0.0)
+    satellite_passes = get_satellite_events(satname, point, t0, t1, altitude_degrees=0.0)
 
     total_laps = len(satellite_passes)
     total_coverage_time = []
@@ -621,7 +622,7 @@ def get_bestSF_coverage_time(lat, lon, t0, t1):
         rise_time = lap[0]
         set_time = lap[2]
 
-        elevation, times, ranges, doppler_shifts, doppler_rates = get_dopplereffect(point, rise_time, set_time)
+        elevation, times, ranges, doppler_shifts, doppler_rates = get_dopplereffect(satname, point, rise_time, set_time)
 
         rcvd_powers = [received_power(range_) for range_ in ranges]
         bestSfs = [get_best_sf(shift, rate, P_r) for shift, rate, P_r in zip(doppler_shifts, doppler_rates, rcvd_powers)]
@@ -780,7 +781,7 @@ def plot_lora_linkbudget():
     # Calculate received power for different configurations
     P_r = received_power(distances)
 
-    plt.figure(figsize=(8,8))
+    plt.figure(figsize=(8,5))
     plt.plot(elevation_angles, P_r, color='red')
 
     plt.axhline(y=-124.5, color='gray', linestyle=':', label=f'SF7 Sensitivity')
@@ -923,11 +924,11 @@ def plot_enddevices(points):
     plt.show()
 
 
-def plot_sat_altitude(t0, t1, delta):
+def plot_sat_altitude(satname, t0, t1, delta):
 
     times = []
     heights = []
-    satellite = load_satellite()
+    satellite = load_satellite(satname)
     t = t0
     while t < t1:
         sat = satellite.at(t)
@@ -947,7 +948,7 @@ def plot_sat_altitude(t0, t1, delta):
     plt.show()
 
 
-def plot_sat_track(points, t0, t1, delta):
+def plot_sat_track(satname, points, t0, t1, delta):
 
     plt.figure(figsize=(16, 8))
     ax = plt.axes(projection=ccrs.Robinson())
@@ -959,7 +960,7 @@ def plot_sat_track(points, t0, t1, delta):
     longitudes = [point[1] for point in points]
     ax.scatter(longitudes, latitudes, color='red', s=10, transform=ccrs.PlateCarree(), label='End-Devices')
 
-    satellite = load_satellite()
+    satellite = load_satellite(satname)
     sat = satellite.at(t0 - timedelta(seconds=1))
     last_lat, _ = wgs84.latlon_of(sat)
     last_lat = last_lat.degrees
@@ -992,9 +993,9 @@ def plot_sat_track(points, t0, t1, delta):
     #plt.savefig("sattrack.pdf")
 
 
-def plot_laptrack(t0, t1, delta):
+def plot_laptrack(satname, t0, t1, delta):
 
-    satellite = load_satellite()
+    satellite = load_satellite(satname)
     latitudes = []
     longitudes = []
     t = t0
@@ -1011,7 +1012,7 @@ def plot_laptrack(t0, t1, delta):
         plt.scatter(longitudes, latitudes, color='green', s=30, transform=ccrs.PlateCarree(), marker='v', label='Sat Descending')
 
 
-def plot_dtsiot_scenario(points, lap_times):
+def plot_dtsiot_scenario(satname, points, lap_times):
 
     #plt.figure(figsize=(16, 8))
     ax = plt.axes(projection=ccrs.Robinson())
@@ -1025,7 +1026,7 @@ def plot_dtsiot_scenario(points, lap_times):
 
     # plot satellite tracks
     for t0, t1 in lap_times:
-        plot_laptrack(t0, t1, 10)
+        plot_laptrack(satname, t0, t1, 10)
 
     ax.set_extent([FR_E-10, FR_W+10, FR_S-10, FR_N+10], crs=ccrs.PlateCarree())
     plt.title('Best Satellite Trajectories and End-devices', fontsize=14)
@@ -1036,7 +1037,7 @@ def plot_dtsiot_scenario(points, lap_times):
     plt.savefig("roi.pdf")
 
 
-def plot_best_satellite_passes(points, t0, t1):
+def plot_best_satellite_passes(satname, points, t0, t1):
 
     all_rise_times_1st = []
     all_set_times_1st = []
@@ -1047,7 +1048,7 @@ def plot_best_satellite_passes(points, t0, t1):
 
         point = wgs84.latlon(lat, lon)
         altitude_degrees = 30.0
-        satellite_passes = get_satellite_events(point, t0, t1, altitude_degrees=altitude_degrees)
+        satellite_passes = get_satellite_events(satname, point, t0, t1, altitude_degrees=altitude_degrees)
 
         all_rise_times_1st.append(satellite_passes[0][0])
         all_set_times_1st.append(satellite_passes[0][2])
@@ -1059,17 +1060,17 @@ def plot_best_satellite_passes(points, t0, t1):
     lap_times = [(min(all_rise_times_1st),  max(all_set_times_1st)),
                  (min(all_rise_times_2st),  max(all_set_times_2st))]
 
-    plot_dtsiot_scenario(points, lap_times)
+    plot_dtsiot_scenario(satname, points, lap_times)
     
 
-def plot_elevationangles(points, t0, t1, delta, altitude_degrees):
+def plot_elevationangles(satname, points, t0, t1, delta, altitude_degrees):
 
-    satellite = load_satellite()
+    satellite = load_satellite(satname)
 
     for i, (lat, lon) in enumerate(points):
 
         point = wgs84.latlon(lat, lon)
-        satellite_passes = get_satellite_events(point, t0, t1, altitude_degrees=altitude_degrees)
+        satellite_passes = get_satellite_events(satname, point, t0, t1, altitude_degrees=altitude_degrees)
         difference = satellite - point
 
         for sat_pass in satellite_passes:
@@ -1136,11 +1137,11 @@ def plot_elevationangles_constellation(constellation, point, t0, t1, delta):
     plt.show()
 
 
-def plot_dopplereffect(lat, lon, t0, t1, delta, altitude_degrees):
+def plot_dopplereffect(satname, lat, lon, t0, t1, delta, altitude_degrees):
 
-    satellite = load_satellite()
+    satellite = load_satellite(satname)
     point = wgs84.latlon(lat, lon)
-    satellite_passes = get_satellite_events(point, t0, t1, altitude_degrees=altitude_degrees)
+    satellite_passes = get_satellite_events(satname, point, t0, t1, altitude_degrees=altitude_degrees)
     difference = satellite - point
 
     all_times = []
@@ -1192,7 +1193,7 @@ def plot_dopplereffect(lat, lon, t0, t1, delta, altitude_degrees):
     plt.show()
 
 
-def plot_alllaps_SFcurve(points, t0, t1):
+def plot_alllaps_SFcurve(satname, points, t0, t1):
     """
     Plot multiple scatter plots for different maxE values on the same figure, 
     each with a distinct marker.
@@ -1208,7 +1209,7 @@ def plot_alllaps_SFcurve(points, t0, t1):
     for i, (lat, lon) in enumerate(points):
 
         point = wgs84.latlon(lat, lon)
-        satellite_passes = get_satellite_events(point, t0, t1, altitude_degrees=0.0)
+        satellite_passes = get_satellite_events(satname, point, t0, t1, altitude_degrees=0.0)
 
         all_times = []
         all_bestSFs = []
@@ -1219,7 +1220,7 @@ def plot_alllaps_SFcurve(points, t0, t1):
             rise_time = lap[0]
             set_time = lap[2]
 
-            elevation, times, ranges, doppler_shifts, doppler_rates = get_dopplereffect(point, rise_time, set_time)
+            elevation, times, ranges, doppler_shifts, doppler_rates = get_dopplereffect(satname, point, rise_time, set_time)
 
             rcvd_powers = [received_power(range_) for range_ in ranges]
             bestSfs = [get_best_sf(shift, rate, P_r) for shift, rate, P_r in zip(doppler_shifts, doppler_rates, rcvd_powers)]
@@ -1248,7 +1249,7 @@ def plot_alllaps_SFcurve(points, t0, t1):
     plt.show()
 
 
-def plot_best_SFcurve(points, t0, t1, _colors):
+def plot_best_SFcurve(satname, points, t0, t1, _colors):
     """
     Plot multiple scatter plots for different maxE values on the same figure, 
     each with a distinct marker.
@@ -1270,7 +1271,7 @@ def plot_best_SFcurve(points, t0, t1, _colors):
             rise_time = lap[0]
             set_time = lap[2]
 
-            elevation, times, ranges, doppler_shifts, doppler_rates = get_dopplereffect(point, rise_time, set_time)
+            elevation, times, ranges, doppler_shifts, doppler_rates = get_dopplereffect(satname, point, rise_time, set_time)
 
             rcvd_powers = [received_power(range_) for range_ in ranges]
             bestSfs = [get_best_sf(shift, rate, P_r) for shift, rate, P_r in zip(doppler_shifts, doppler_rates, rcvd_powers)]
@@ -1290,3 +1291,246 @@ def plot_best_SFcurve(points, t0, t1, _colors):
     #plt.legend(fontsize=10)
     plt.grid()
     plt.show()
+
+
+def plot_sat_track_constellation(constellation, points, t0, t1, delta):
+    """
+    Plot satellite tracks for an entire constellation.
+    
+    Parameters:
+    -----------
+    constellation : list
+        List of satellite names (e.g., KINEISCONSTELLATION)
+    points : list
+        List of (lat, lon) tuples for end-devices
+    t0 : datetime
+        Start time
+    t1 : datetime
+        End time
+    delta : float
+        Time step in seconds
+    """
+    plt.figure(figsize=(16, 8))
+    ax = plt.axes(projection=ccrs.Robinson())
+    ax.add_feature(cfeature.COASTLINE)
+    ax.add_feature(cfeature.BORDERS, linestyle=':')
+    ax.gridlines(draw_labels=True)
+    
+    # Plot end-devices
+    latitudes = [point[0] for point in points]
+    longitudes = [point[1] for point in points]
+    ax.scatter(longitudes, latitudes, color='red', s=30, 
+               transform=ccrs.PlateCarree(), label='End-Devices')
+    
+    # Iterate through each satellite in the constellation
+    for i, satname in enumerate(constellation):
+        satellite = load_satellite(satname)
+        
+        # Track satellite position over time
+        t = t0
+        lastlat = None
+        ascending_labeled = False
+        descending_labeled = False
+        
+        while t < t1:
+            sat = satellite.at(t)
+            lat, lon = wgs84.latlon_of(sat)
+            
+            # Determine ascending or descending pass
+            if lastlat is not None:
+                if lat.degrees > lastlat:
+                    # Ascending pass
+                    label = f'{satname} Ascending' if not ascending_labeled else ''
+                    ax.scatter(lon.degrees, lat.degrees, color=COLORS2[i % len(COLORS2)], 
+                             s=10, transform=ccrs.PlateCarree(), marker='^', label=label)
+                    ascending_labeled = True
+                else:
+                    # Descending pass
+                    label = f'{satname} Descending' if not descending_labeled else ''
+                    ax.scatter(lon.degrees, lat.degrees, color=COLORS2[i % len(COLORS2)], 
+                             s=10, transform=ccrs.PlateCarree(), marker='v', label=label)
+                    descending_labeled = True
+            
+            lastlat = lat.degrees
+            t += timedelta(seconds=delta)
+    
+    plt.title('Satellite Constellation Trajectories', fontsize=16)
+    plt.xticks(fontsize=12)
+    plt.yticks(fontsize=12)
+    plt.legend(fontsize=10)
+    plt.show()
+    plt.savefig('constellation_track.pdf')
+
+    
+def animate_constellation_groundtrack(constellation, t0, t1, output_filename='constellation_track.gif', fps=10, delta=60):
+    """
+    Animate satellite constellation ground tracks and save as GIF.
+    
+    Parameters:
+    -----------
+    constellation : list
+        List of satellite names (e.g., KINEISCONSTELLATION)
+    t0 : Skyfield Time object or datetime
+        Start time
+    t1 : Skyfield Time object or datetime
+        End time
+    output_filename : str
+        Output GIF filename (default: 'constellation_track.gif')
+    fps : int
+        Frames per second for the animation (default: 10)
+    delta : int
+        Time step in seconds between frames (default: 60)
+    """
+    from skyfield.api import load, wgs84
+    from datetime import timedelta
+    import matplotlib.pyplot as plt
+    import cartopy.crs as ccrs
+    import cartopy.feature as cfeature
+    from matplotlib.animation import FuncAnimation, PillowWriter
+    import numpy as np
+    
+    # Define markers for letters A, B, C, D, E
+    letter_markers = {
+        'A': 'o',      # circle
+        'B': 's',      # square
+        'C': '^',      # triangle up
+        'D': 'D',      # diamond
+        'E': 'P'       # plus (filled)
+    }
+    
+    # Define colors for numbers 1, 2, 3, 4, 5
+    number_colors = {
+        '1': '#FF0000',  # Red
+        '2': '#00FF00',  # Green
+        '3': '#0000FF',  # Blue
+        '4': '#FF00FF',  # Magenta
+        '5': '#FFA500'   # Orange
+    }
+    
+    # Handle Skyfield time objects vs datetime objects
+    if hasattr(t0, 'utc_datetime'):
+        # Skyfield Time object
+        start_dt = t0.utc_datetime()
+        end_dt = t1.utc_datetime()
+    else:
+        # Regular datetime object
+        start_dt = t0
+        end_dt = t1
+    
+    # Load satellites
+    satellites = []
+    for satname in constellation:
+        satellites.append(load_satellite(satname))
+    
+    # Generate time samples using delta
+    total_seconds = (end_dt - start_dt).total_seconds()
+    num_samples = int(total_seconds / delta)
+    times = [start_dt + timedelta(seconds=i*delta) for i in range(num_samples)]
+    
+    print(f"Generating {num_samples} frames with {delta} second timesteps")
+    print(f"Total animation duration: {total_seconds/3600:.2f} hours")
+    
+    # Convert datetime back to Skyfield times for satellite calculations
+    ts = load.timescale()
+    skyfield_times = [ts.utc(t.year, t.month, t.day, t.hour, t.minute, t.second) for t in times]
+    
+    # Pre-compute all satellite positions for all times
+    sat_positions = []  # List of lists: [sat_idx][time_idx] = (lat, lon)
+    for satellite in satellites:
+        positions = []
+        for t in skyfield_times:
+            sat = satellite.at(t)
+            lat, lon = wgs84.latlon_of(sat)
+            positions.append((lat.degrees, lon.degrees))
+        sat_positions.append(positions)
+    
+    # Parse satellite names to extract number and letter
+    # Format: KINEIS-1A -> number='1', letter='A'
+    sat_styles = []
+    for satname in constellation:
+        parts = satname.split('-')
+        if len(parts) > 1:
+            number = parts[1][0]  # First character is the number
+            letter = parts[1][1]  # Second character is the letter
+            color = number_colors.get(number, '#000000')
+            marker = letter_markers.get(letter, '*')
+            sat_styles.append({'color': color, 'marker': marker, 'number': number, 'letter': letter})
+        else:
+            sat_styles.append({'color': '#000000', 'marker': '*', 'number': '?', 'letter': '?'})
+    
+    # Setup figure
+    fig = plt.figure(figsize=(16, 8))
+    ax = plt.axes(projection=ccrs.Robinson())
+    
+    # Create legend elements (persistent across frames)
+    from matplotlib.lines import Line2D
+    legend_elements = []
+    
+    # Add number legend (colors)
+    for num in ['1', '2', '3', '4', '5']:
+        legend_elements.append(Line2D([0], [0], marker='o', color='w', 
+                                     markerfacecolor=number_colors[num], 
+                                     markersize=10, label=f'Plane {num}'))
+    
+    # Add letter legend (shapes)
+    for letter in ['A', 'B', 'C', 'D', 'E']:
+        legend_elements.append(Line2D([0], [0], marker=letter_markers[letter], 
+                                     color='w', markerfacecolor='gray', 
+                                     markersize=10, label=f'Sat {letter}'))
+    
+    def init():
+        """Initialize the animation"""
+        ax.clear()
+        ax.add_feature(cfeature.COASTLINE)
+        ax.add_feature(cfeature.BORDERS, linestyle=':')
+        ax.gridlines(draw_labels=True)
+        ax.set_global()
+        return []
+    
+    def update(frame):
+        """Update function for animation"""
+        ax.clear()
+        ax.add_feature(cfeature.COASTLINE)
+        ax.add_feature(cfeature.BORDERS, linestyle=':')
+        ax.gridlines(draw_labels=True)
+        ax.set_global()
+        
+        # Plot satellite positions up to current frame
+        for sat_idx, (satname, positions, style) in enumerate(zip(constellation, sat_positions, sat_styles)):
+            # Plot trajectory trail (past positions)
+            if frame > 0:
+                trail_lats = [pos[0] for pos in positions[:frame+1]]
+                trail_lons = [pos[1] for pos in positions[:frame+1]]
+                ax.plot(trail_lons, trail_lats, 
+                       color=style['color'], 
+                       linewidth=1.5, alpha=0.4,
+                       transform=ccrs.PlateCarree())
+            
+            # Plot current position
+            current_lat, current_lon = positions[frame]
+            ax.scatter(current_lon, current_lat, 
+                      color=style['color'],
+                      marker=style['marker'], s=200,
+                      edgecolors='black', linewidths=1.5,
+                      transform=ccrs.PlateCarree(),
+                      zorder=5)
+        
+        plt.title(f'Constellation Ground Track at {times[frame].strftime("%Y-%m-%d %H:%M:%S")} (Δt={delta}s)', 
+                 fontsize=16)
+        
+        # Add persistent legend
+        ax.legend(handles=legend_elements, fontsize=9, loc='lower left', 
+                 ncol=2, framealpha=0.9)
+        
+        fig.canvas.draw()
+        return []
+    
+    # Create animation
+    anim = FuncAnimation(fig, update, init_func=init, 
+                        frames=num_samples, interval=100)
+    
+    # Save as GIF
+    writer = PillowWriter(fps=fps, metadata=dict(artist='Me'))
+    anim.save(output_filename, writer=writer)
+    print(f"Animation saved as {output_filename}")
+    plt.close()

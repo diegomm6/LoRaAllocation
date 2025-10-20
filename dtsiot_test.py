@@ -12,31 +12,38 @@ points = [
 ]
 
 ts = load.timescale()
-t0 = ts.utc(2025,6,2)  # 15  16
-t1 = ts.utc(2025,6,3)  # 22  19
-delta = 20
+t0 = ts.utc(2025,6,2,7)  # 15  16
+t1 = ts.utc(2025,6,2,7,30)  # 22  19
+delta = 10
+
+satname = 'KINEIS-1A'
 
 altitude_degrees = 10.0
 lat, lon = points[0]
 point = wgs84.latlon(lat, lon)
 
-#plot_elevationangles(points, t0, t1, delta, altitude_degrees)
+#plot_elevationangles(satname, points, t0, t1, delta, altitude_degrees)
 
 #plot_elevationangles_constellation(KINEIS_CONSTELLATION, point, t0, t1, delta)
 
-#plot_dopplereffect(lat, lon, t0, t1, delta, altitude_degrees)
+#plot_dopplereffect(satname, lat, lon, t0, t1, delta, altitude_degrees)
 
 #plot_enddevices(points)
 
-plot_best_satellite_passes(points, t0, t1)
+#plot_best_satellite_passes(satname, points, t0, t1)
 
-#plot_sat_track(points, t0, t1, delta)
+#plot_sat_track(satname, points, t0, t1, delta)
 
-#plot_alllaps_SFcurve(points, t0, t1)
+#plot_sat_track_constellation(KINEIS_CONSTELLATION, points, t0, t1, delta)
 
-#plot_sat_altitude(t0, t1, delta)
+animate_constellation_groundtrack(KINEIS_CONSTELLATION, t0, t1, output_filename='constellation_track3.gif', fps=15, delta=delta)
+exit(1)
 
-#get_bestSF_coverage_time(lat, lon, t0, t1)
+#plot_alllaps_SFcurve(satname, points, t0, t1)
+
+#plot_sat_altitude(satname, t0, t1, delta)
+
+#get_bestSF_coverage_time(satname, lat, lon, t0, t1)
 
 #plot_toa()
 
@@ -48,7 +55,7 @@ plot_best_satellite_passes(points, t0, t1)
 
 #write_locations(3000, "locations3k.txt")
 
-#plot_best_SFcurve(points, t0, t1, COLORS1)
+#plot_best_SFcurve(satname, points, t0, t1, COLORS1)
 
 #print(round(max_sf12_range()/1e3))
 
@@ -62,7 +69,7 @@ datafile = ""
 timeslots = int(np.ceil(round(float(t1 - t0) * 86400) / slottime))
 save_sache = False
 
-network = DtSIoTNetwork(numDevices, t0, slottime, timeslots, 1,
+network = DtSIoTNetwork(satname, numDevices, t0, slottime, timeslots, 1,
                         1, locationsfilename, datafile, save_sache)
 
 #network.plot_bestSF_map()

@@ -2,10 +2,9 @@ from src.base import *
 
 class Gateway:
 
-    def __init__(self, numDevices, slottime, timeslots, numLRchannels,
-                 numFHSSchannels) -> None:
+    def __init__(self, satname, numDevices, slottime, timeslots, numLRchannels, numFHSSchannels) -> None:
         
-        self.satellite = load_satellite()
+        self.satellite = load_satellite(satname)
 
         self.numDevices = numDevices
         self.slottime = slottime

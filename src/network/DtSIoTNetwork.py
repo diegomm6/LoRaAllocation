@@ -16,10 +16,11 @@ from src.mac.ALOHAmax import ALOHAmax
 
 class DtSIoTNetwork():
 
-    def __init__(self, numDevices, start_time, slottime, timeslots, numLRchannels,
+    def __init__(self, satname, numDevices, start_time, slottime, timeslots, numLRchannels,
                  numFHSSchannels, locationsfilename="locations.txt", datafile="",
                  save_cache=False) -> None:
 
+        self.satname = satname
         self.numDevices = numDevices
         self.slottime = slottime
         self.start_time = start_time
@@ -33,7 +34,7 @@ class DtSIoTNetwork():
         self.enddevices = [EndDevice(i, lat, lon) for i, (lat, lon) in enumerate(locations)]
         self.enddevices = self.enddevices[:numDevices]
 
-        self.gateway = Gateway(numDevices, slottime, timeslots, numLRchannels, numFHSSchannels)
+        self.gateway = Gateway(satname, numDevices, slottime, timeslots, numLRchannels, numFHSSchannels)
 
         self.initialize_data(datafile, save_cache)
 
@@ -141,8 +142,8 @@ class DtSIoTNetwork():
 
 
         self.plot_TX_RX_results(network_sizes, scheduled_txs, successful_rxs, labels)
-        self.plot_usage_time(4, network_sizes, usage_time_all, labels)
-        self.plot_usage_time(5, network_sizes, usage_time_all, labels)
+        #self.plot_usage_time(4, network_sizes, usage_time_all, labels)
+        #self.plot_usage_time(5, network_sizes, usage_time_all, labels)
         
 
     # get resulst for a number of EDs comparing differents schedulers
@@ -202,7 +203,7 @@ class DtSIoTNetwork():
         else:
             self.gateway.generate_data(self.start_time, self.end_time)
             for ed in self.enddevices:
-                ed.generate_data(self.start_time, self.end_time, self.slottime)
+                ed.generate_data(self.satname, self.start_time, self.end_time, self.slottime)
                 
             if save_cache:
                 self.export_cache()
@@ -279,19 +280,20 @@ class DtSIoTNetwork():
         num_methods = len(labels)
         plt.figure(figsize=(8, 8))
         for j in range(num_methods):
-            plt.plot(size_list, txs[j]/size_list, c=COLORS1[j], label=f'TX {labels[j]}')
-            plt.plot(size_list, rxs[j]/size_list, c=COLORS1[j], linestyle='dashed', label=f'RX {labels[j]}')
+            print(f"{labels[j]}: TX {txs[j]}, RX {rxs[j]}")
+            plt.plot(size_list, txs[j], c=COLORS1[j], label=f'TX {labels[j]}')
+            plt.plot(size_list, rxs[j], c=COLORS1[j], linestyle='dashed', label=f'RX {labels[j]}')
 
         plt.xlabel('Generated LoRa packets',fontsize=16)
-        plt.ylabel('Ratio to created packets [%]',fontsize=16)
+        plt.ylabel('packet count',fontsize=16)
         plt.title(f'Sent & Received LoRa packets per beacon',fontsize=18)
         plt.legend(fontsize=12)
         plt.xticks(fontsize=12)
         plt.yticks(fontsize=12)
         plt.legend(fontsize=12)
         plt.grid()
-        #plt.show()
-        plt.savefig("window_packets.pdf")
+        plt.show()
+        #plt.savefig("window_packets.pdf")
         plt.close()
 
         plt.figure(figsize=(8, 8))
@@ -305,8 +307,8 @@ class DtSIoTNetwork():
         plt.yticks(fontsize=12)
         plt.legend(fontsize=12)
         plt.grid()
-        #plt.show()
-        plt.savefig("window_throughput.pdf")
+        plt.show()
+        #plt.savefig("window_throughput.pdf")
         plt.close()
 
         plt.figure(figsize=(8, 8))
@@ -320,8 +322,8 @@ class DtSIoTNetwork():
         plt.yticks(fontsize=12)
         plt.legend(fontsize=12)
         plt.grid()
-        #plt.show()
-        plt.savefig("window_pdr.pdf")
+        plt.show()
+        #plt.savefig("window_pdr.pdf")
         plt.close()
 
 
@@ -351,10 +353,12 @@ class DtSIoTNetwork():
         plt.figure(figsize=(8, 8))
         #plt.plot(range(numBeacons), with_coverage, c='k', label='EDs with coverage')
         for j in range(num_methods):
-            plt.plot(range(numBeacons), txs[j]/self.numDevices, c=COLORS1[j], label=f'TX {labels[j]}')
-            plt.plot(range(numBeacons), rxs[j]/self.numDevices, c=COLORS1[j], linestyle='dashed', label=f'RX {labels[j]}')
+            #plt.plot(range(numBeacons), txs[j]/self.numDevices, c=COLORS1[j], label=f'TX {labels[j]}')
+            plt.plot(range(numBeacons), txs[j], c=COLORS1[j], label=f'TX {labels[j]}')
+            #plt.plot(range(numBeacons), rxs[j]/self.numDevices, c=COLORS1[j], linestyle='dashed', label=f'RX {labels[j]}')
+            plt.plot(range(numBeacons), rxs[j], c=COLORS1[j], linestyle='dashed', label=f'RX {labels[j]}')
         plt.xlabel('beacon number', fontsize=16)
-        plt.ylabel('ratio to created packets [%]', fontsize=16)
+        plt.ylabel('packets', fontsize=16)
         plt.title(f'Sent & Received LoRa packets per beacon', fontsize=18)
         plt.xticks(fontsize=12)
         plt.yticks(fontsize=12)
@@ -525,8 +529,8 @@ class DtSIoTNetwork():
         # Make sure the background is white
         ax = plt.gca()
         ax.set_facecolor('white')
-        plt.savefig("beacons.pdf")
-        #plt.show()
+        #plt.savefig("beacons.pdf")
+        plt.show()
 
 
     def plot_bestSF_map(self):

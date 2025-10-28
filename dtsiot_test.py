@@ -1,6 +1,4 @@
 from src.base import *
-from src.network.DtSIoTNetwork import DtSIoTNetwork
-
 np.random.seed(42)
 
 points = [
@@ -12,12 +10,11 @@ points = [
 ]
 
 ts = load.timescale()
-t0 = ts.utc(2025,6,2,7)  # 15  16
-t1 = ts.utc(2025,6,2,7,30)  # 22  19
+t0 = ts.utc(2025,10,24,17,40)  # 15  16
+t1 = ts.utc(2025,10,24,18,00)  # 22  19
 delta = 10
 
 satname = 'KINEIS-1A'
-
 altitude_degrees = 10.0
 lat, lon = points[0]
 point = wgs84.latlon(lat, lon)
@@ -36,8 +33,9 @@ point = wgs84.latlon(lat, lon)
 
 #plot_sat_track_constellation(KINEIS_CONSTELLATION, points, t0, t1, delta)
 
-animate_constellation_groundtrack(KINEIS_CONSTELLATION, t0, t1, output_filename='constellation_track3.gif', fps=15, delta=delta)
-exit(1)
+animate_constellation_groundtrack(KINEIS_CONSTELLATION, t0, t1, output_filename='constellation_track4.gif', fps=15, delta=delta)
+
+#animate_constellation_groundtrack_generic(STARLINK_CONSTELLATION2, t0, t1, output_filename='starlink_track3.gif', fps=15, delta=delta)
 
 #plot_alllaps_SFcurve(satname, points, t0, t1)
 
@@ -58,21 +56,3 @@ exit(1)
 #plot_best_SFcurve(satname, points, t0, t1, COLORS1)
 
 #print(round(max_sf12_range()/1e3))
-
-
-t0 = ts.utc(2025,6,2,7,15)
-t1 = ts.utc(2025,6,2,7,22)
-numDevices = 100
-slottime = 1 # lora_toa(PL_BYTES, 11)
-locationsfilename = "locations.txt"
-datafile = ""
-timeslots = int(np.ceil(round(float(t1 - t0) * 86400) / slottime))
-save_sache = False
-
-network = DtSIoTNetwork(satname, numDevices, t0, slottime, timeslots, 1,
-                        1, locationsfilename, datafile, save_sache)
-
-#network.plot_bestSF_map()
-#network.plot_heatmapSF()
-#network.plot_bestSF_ocurrences()
-#network.plot_availableSF_map(11)

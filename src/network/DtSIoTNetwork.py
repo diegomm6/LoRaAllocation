@@ -16,11 +16,12 @@ from src.mac.ALOHAmax import ALOHAmax
 
 class DtSIoTNetwork():
 
-    def __init__(self, satname, numDevices, start_time, slottime, timeslots, numLRchannels,
+    def __init__(self, constellation, numDevices, start_time, slottime, timeslots, numLRchannels,
                  numFHSSchannels, locationsfilename="locations.txt", datafile="",
                  save_cache=False) -> None:
 
-        self.satname = satname
+        self.constellation = constellation
+        self.numSatellites = len(self.constellation)
         self.numDevices = numDevices
         self.slottime = slottime
         self.start_time = start_time
@@ -34,8 +35,12 @@ class DtSIoTNetwork():
         self.enddevices = [EndDevice(i, lat, lon) for i, (lat, lon) in enumerate(locations)]
         self.enddevices = self.enddevices[:numDevices]
 
-        self.gateway = Gateway(satname, numDevices, slottime, timeslots, numLRchannels, numFHSSchannels)
-
+        # Create gateway for each satellite
+        self.gateways = {}
+        for satname in self.constellation:
+            self.gateways[satname] = Gateway(satname, numDevices, slottime, timeslots, 
+                                             numLRchannels, numFHSSchannels)
+        
         self.initialize_data(datafile, save_cache)
 
 
@@ -68,47 +73,108 @@ class DtSIoTNetwork():
         
 
     # for a given schedule calculate the distance at transmission
-    # time for the corresponding end devices
-    def get_distances_at_tx_time(self, schedules):
+    # time from end devices to given satellite
+    def get_distances_at_tx_time(self, schedules, satname):
 
         distances_at_tx_time = []
-        for n,m,p,q in schedules:
+        for n, m, p, q in schedules:
             ed: EndDevice = self.enddevices[n]
-            distances_at_tx_time.append(ed.cached_ranges[p])
-
+            distances_at_tx_time.append(ed.cached_ranges[satname][p])
         return np.array(distances_at_tx_time)
     
+
+    # Process successful receptions from all satellites.
+    def process_rxs(self):
+
+        # Collect all unique devices across all satellites
+        all_devices = set()
+        total_rxs = 0
+        
+        for satname in self.constellation:
+            gateway: Gateway = self.gateways[satname]
+            
+            # Extract unique device IDs (n) from this satellite
+            for (n, m, p, q) in gateway.successful_rxs:
+                all_devices.add(n)
+
+            total_rxs += len(gateway.successful_rxs)
+        
+        # Count unique devices across all satellites
+        unique_rxs = len(all_devices)
+        
+        return unique_rxs, total_rxs
+    
+
+    # Get constellation-wide availableSF data for all devices.
+    def get_constellation_availableSF(self):
+
+        availableSF_data = np.array([ed.get_constellation_availableSF(self.constellation) 
+                                    for ed in self.enddevices])
+        
+        return availableSF_data
+    
+    # Get constellation-wide bestSF data for all devices.
+    def get_constellation_bestSF(self):
+
+        bestSF_data = np.array([ed.get_constellation_bestSF(self.constellation) 
+                                    for ed in self.enddevices])
+
+        return bestSF_data
+    
+    # reset successful rx for all gateways
+    def reset_gatways(self):
+        for satname in self.constellation:
+            gateway: Gateway = self.gateways[satname]
+            gateway.successful_rxs = []
+
 
     #########################################################################################
     ##############################   SCHEDULING METHODS   ###################################
     #########################################################################################
 
-    # get schduling results for a given scheduler, network size, uplink window
-    def run_scheduler(self, SchedulerClass: Scheduler, numEDs, windowslots, availableSF_data, runs,
-                      timeshift=0, scheduler_kwargs={}):
+    # Run scheduler with multi-satellite constellation support
+    def run_scheduler(self, SchedulerClass, numEDs, windowslots, availableSF_data, runs,
+                    timeshift=0, scheduler_kwargs={}):
 
-        usage_time_all = np.zeros(self.M)
+        # Initialize scheduler (ONE scheduler for the whole constellation)
         args = (numEDs, self.slottime, windowslots, self.numLRchannels, availableSF_data)
-        scheduler : Scheduler = SchedulerClass(*args, **scheduler_kwargs)
-
-        scheduled_txs = 0
-        successful_rxs = 0
-        support_time_all = np.zeros(self.M)
+        scheduler: Scheduler = SchedulerClass(*args, **scheduler_kwargs)
+            
+        # Tracking variables
+        total_scheduled_txs = 0
+        total_unique_rxs = 0
+        total_successful_rxs = 0
         usage_time_all = np.zeros(self.M)
-
+        
+        # Run multiple scheduling iterations
         for r in range(runs):
-
+            # Create ONE schedule based on merged constellation availability
             schedules, _ = scheduler.get_schedule(timeshift)
-            distances_at_tx_time = self.get_distances_at_tx_time(schedules)
-            is_successful, sinr = self.gateway.calculate_sinr(schedules, distances_at_tx_time)
-            _, total_usage = scheduler.get_total_time_perSF(schedules)
+            
+            # EACH satellite independently calculates its receptions
+            for satname in self.constellation:
+                gateway: Gateway = self.gateways[satname]
+                distances_at_tx_time = self.get_distances_at_tx_time(schedules, satname)
+                gateway.compute_RXs(schedules, distances_at_tx_time)
 
-            scheduled_txs += len(schedules)
-            successful_rxs += is_successful.sum()
+            # Process receptions across the constellation
+            unique_rxs, total_rxs = self.process_rxs()
+            total_unique_rxs += unique_rxs
+            total_successful_rxs += total_rxs
+            
+            # Calculate channel usage (same schedule for all satellites)
+            _, total_usage = scheduler.get_total_time_perSF(schedules)
+            
+            total_scheduled_txs += len(schedules)
             usage_time_all += total_usage / (self.numLRchannels * windowslots)
 
+            self.reset_gatways()
+        
+        # Clean up scheduler
         del scheduler
-        return scheduled_txs / runs, successful_rxs / runs, usage_time_all / runs
+
+        return total_scheduled_txs / runs, total_successful_rxs / runs, total_unique_rxs / runs
+
 
 
     # get resulst for a list of network sizes comparing differents schedulers
@@ -116,16 +182,17 @@ class DtSIoTNetwork():
 
         scheduler_configs, labels = self.load_scheduler_config(config)
         num_methods = len(scheduler_configs)
-        num_runs = [1] + [runs] * (num_methods - 1)  # Only Opt1DModel runs once, others run multiple times
+        num_runs = [1] + [runs] * (num_methods - 1)  # Only Opt1DModel runs once
 
         samples = len(network_sizes)
         scheduled_txs = np.zeros((num_methods, samples))
         successful_rxs = np.zeros((num_methods, samples))
+        unique_rxs = np.zeros((num_methods, samples))
         support_time_all = np.zeros((num_methods, samples, self.M))
         usage_time_all = np.zeros((num_methods, samples, self.M))
 
-        availableSF_data = np.array([ed.cached_availableSFs for ed in self.enddevices])
-        availableSF_data = availableSF_data[:,:-1,:] # remove last timeslot
+        availableSF_data = self.get_constellation_availableSF()
+        availableSF_data = availableSF_data[:, :-1, :]  # remove last timeslot
 
         if range_based_order:
             distances_at_beginning = [ed.cached_ranges[0] for ed in self.enddevices]
@@ -138,11 +205,12 @@ class DtSIoTNetwork():
             for j in range(num_methods):
                 config = scheduler_configs[j]
                 args = (config['class'], numEDs, self.timeslots, availableSF_data[:numEDs], num_runs[j])
-                scheduled_txs[j,i], successful_rxs[j,i], usage_time_all[j,i] = self.run_scheduler(*args, scheduler_kwargs=config['kwargs'])
+
+                scheduled_txs[j,i], successful_rxs[j,i], unique_rxs[j,i] = \
+                    self.run_scheduler(*args, scheduler_kwargs=config['kwargs'])
 
 
-        self.plot_TX_RX_results(network_sizes, scheduled_txs, successful_rxs, labels)
-        #self.plot_usage_time(4, network_sizes, usage_time_all, labels)
+        single_window_plots(self.numSatellites, network_sizes, scheduled_txs, successful_rxs, unique_rxs, labels)
         #self.plot_usage_time(5, network_sizes, usage_time_all, labels)
         
 
@@ -157,15 +225,16 @@ class DtSIoTNetwork():
         numBeacons = self.timeslots // beacon_time
         
         num_methods = len(scheduler_configs)
-        num_runs = [1] + [runs] * (num_methods - 1)  # Only Opt1DModel runs once, others run multiple times
+        num_runs = [1] + [runs] * (num_methods - 1)  # Only Opt1DModel runs once
 
         scheduled_txs = np.zeros((num_methods, numBeacons))
-        successful_rxs = np.zeros((num_methods, numBeacons))
+        total_rxs = np.zeros((num_methods, numBeacons))
+        unique_rxs = np.zeros((num_methods, numBeacons))
         support_time_all = np.zeros((num_methods, self.M))
         usage_time_all = np.zeros((num_methods, numBeacons, self.M))
 
-        availableSF_data = np.array([ed.cached_availableSFs for ed in self.enddevices])
-        availableSF_data = availableSF_data[:,:-1,:] # remove last timeslot
+        availableSF_data = self.get_constellation_availableSF()
+        availableSF_data = availableSF_data[:, :-1, :]  # remove last timeslot
 
         if range_based_order:
             distances_at_beginning = [ed.cached_ranges[0] for ed in self.enddevices]
@@ -178,484 +247,357 @@ class DtSIoTNetwork():
 
             for j in range(num_methods):
                 config = scheduler_configs[j]
-                args = (config['class'], numEDs, beacon_time, sub_availableSF_data, num_runs[j], beacon_start)
-                scheduled_txs[j,b], successful_rxs[j,b], usage_time_all[j,b] = self.run_scheduler(*args, scheduler_kwargs=config['kwargs'])
+                args = (config['class'], numEDs, beacon_time, sub_availableSF_data[:numEDs],\
+                        num_runs[j], beacon_start)
+
+                # Returns: scheduled_txs, total_rxs, unique_rxs
+                scheduled_txs[j, b], total_rxs[j, b], unique_rxs[j, b] = \
+                    self.run_scheduler(*args, scheduler_kwargs=config['kwargs'])
 
             beacon_start = beacon_end
             beacon_end = beacon_start + beacon_time
 
         
-        self.beacon_results_plots(scheduled_txs, successful_rxs, labels)
+        beacon_results_plots(scheduled_txs, total_rxs, unique_rxs, labels, self.numSatellites)
 
 
-    ###########################################################################
-    ########################  Simulation Data Methods  ########################
-    ###########################################################################
+    #########################################################################################
+    ###############################  Simulation Data Methods  ###############################
+    #########################################################################################
 
-
-    # initialize satellite positions and end-device data for the simulation
+    # initialize constellation positions and end-device data for the simulation
     # either by generating new data or loading cached data
     def initialize_data(self, datafile, save_cache):
 
         if datafile:
             self.import_cache(datafile)
-
         else:
-            self.gateway.generate_data(self.start_time, self.end_time)
-            for ed in self.enddevices:
-                ed.generate_data(self.satname, self.start_time, self.end_time, self.slottime)
-                
+            for satname in self.constellation:
+                gateway: Gateway = self.gateways[satname]
+                gateway.generate_data(self.start_time, self.end_time)
+
+                for ed in self.enddevices:
+                    ed.generate_data(satname, self.start_time, self.end_time, self.slottime)
+            
             if save_cache:
                 self.export_cache()
 
-
-    # Exports the cached data
     def export_cache(self):
 
-        sim_timestamps = [t.isoformat() if hasattr(t, "isoformat") else t for t in self.gateway.cached_sat_times]
-
-        data = {
-            "satellite": {
+        data = {"satellites": {}}
+        
+        # Export each satellite's data
+        for satname in self.constellation:
+            gateway: Gateway = self.gateways[satname]
+            sim_timestamps = [t.isoformat() if hasattr(t, "isoformat") else t 
+                             for t in gateway.cached_sat_times]
+            
+            data["satellites"][satname] = {
                 "cached_sat_times": sim_timestamps,
-                "cached_sat_lat": self.gateway.cached_sat_lat,
-                "cached_sat_lon": self.gateway.cached_sat_lon,
-            },
-            "devices": []
-        }
-
+                "cached_sat_lat": gateway.cached_sat_lat,
+                "cached_sat_lon": gateway.cached_sat_lon,
+            }
+        
+        # Export device data (per satellite)
+        data["devices"] = []
         for ed in self.enddevices:
             device_data = {
                 "nodeId": ed.nodeId,
                 "lat": ed.lat,
                 "lon": ed.lon,
-                "cached_elevation": ed.cached_elevation,
-                "cached_ranges": ed.cached_ranges,
-                "cached_doppler_shifts": ed.cached_doppler_shifts,
-                "cached_doppler_rates": ed.cached_doppler_rates.tolist(),
-                "cached_availableSFs": ed.cached_availableSFs,
-                "cached_bestSFs": ed.cached_bestSFs,
+                "satellites": {}
             }
+            
+            for satname in self.constellation:
+                device_data["satellites"][satname] = {
+                    "cached_elevation": ed.cached_elevation[satname],
+                    "cached_ranges": ed.cached_ranges[satname],
+                    "cached_doppler_shifts": ed.cached_doppler_shifts[satname],
+                    "cached_doppler_rates": ed.cached_doppler_rates[satname].tolist(),
+                    "cached_availableSFs": ed.cached_availableSFs[satname],
+                    "cached_bestSFs": ed.cached_bestSFs[satname],
+                }
+            
             data["devices"].append(device_data)
-
-        datafile = f"data_{self.numDevices}EDs_{self.timeslots}slots.json"
+        
+        datafile = f"{self.numSatellites}sats_{self.numDevices}EDs_{self.timeslots}slots.json"
         with open(datafile, 'w') as file:
             json.dump(data, file)
+        print(f"Cache saved to {datafile}")
 
-
+    
     def import_cache(self, datafile):
 
         with open(datafile, 'r') as file:
             data = json.load(file)
+        
+        # Restore constellation data
+        for satname in self.constellation:
+            satellite_data = data["satellites"][satname]
 
-        # Restore satellite data
-        satellite_data = data["satellite"]
-        self.gateway.cached_sat_times = [datetime.fromisoformat(t) if isinstance(t, str) else t 
-                                 for t in satellite_data["cached_sat_times"]]
-        self.gateway.cached_sat_lat = satellite_data["cached_sat_lat"]
-        self.gateway.cached_sat_lon = satellite_data["cached_sat_lon"]
-
-        # Restore device data using direct index access
-        ed : EndDevice
+            gateway: Gateway = self.gateways[satname]
+            gateway.cached_sat_times = [datetime.fromisoformat(t) if isinstance(t, str) else t
+                                         for t in satellite_data["cached_sat_times"]]
+            gateway.cached_sat_lat = satellite_data["cached_sat_lat"]
+            gateway.cached_sat_lon = satellite_data["cached_sat_lon"]
+        
+        # Restore device data
         for device_data in data["devices"]:
-            ed = self.enddevices[device_data["nodeId"]]  # Direct index access
+            ed: EndDevice = self.enddevices[device_data["nodeId"]]
             ed.lat = device_data["lat"]
             ed.lon = device_data["lon"]
-            ed.cached_elevation = device_data["cached_elevation"]
-            ed.cached_ranges = device_data["cached_ranges"]
-            ed.cached_times = self.gateway.cached_sat_times
-            ed.cached_doppler_shifts = device_data["cached_doppler_shifts"]
-            ed.cached_doppler_rates = np.array(device_data["cached_doppler_rates"])
-            ed.cached_availableSFs = device_data["cached_availableSFs"]
-            ed.cached_bestSFs = device_data["cached_bestSFs"]
-
+            
+            for satname in self.constellation:
+                sat_data = device_data["satellites"][satname]
+                ed.cached_elevation[satname] = sat_data["cached_elevation"]
+                ed.cached_ranges[satname] = sat_data["cached_ranges"]
+                ed.cached_times[satname] = self.gateways[satname].cached_sat_times
+                ed.cached_doppler_shifts[satname] = sat_data["cached_doppler_shifts"]
+                ed.cached_doppler_rates[satname] = np.array(sat_data["cached_doppler_rates"])
+                ed.cached_availableSFs[satname] = sat_data["cached_availableSFs"]
+                ed.cached_bestSFs[satname] = sat_data["cached_bestSFs"]
+        
         self.data_cached = True
 
 
-    ###########################################################################
-    ############################  Plotting Methods  ###########################
-    ###########################################################################
+    #########################################################################################
+    ###################################  Plotting Methods  ##################################
+    #########################################################################################
 
-    def plot_TX_RX_results(self, size_list, txs, rxs, labels):
-
-        num_methods = len(labels)
-        plt.figure(figsize=(8, 8))
-        for j in range(num_methods):
-            print(f"{labels[j]}: TX {txs[j]}, RX {rxs[j]}")
-            plt.plot(size_list, txs[j], c=COLORS1[j], label=f'TX {labels[j]}')
-            plt.plot(size_list, rxs[j], c=COLORS1[j], linestyle='dashed', label=f'RX {labels[j]}')
-
-        plt.xlabel('Generated LoRa packets',fontsize=16)
-        plt.ylabel('packet count',fontsize=16)
-        plt.title(f'Sent & Received LoRa packets per beacon',fontsize=18)
-        plt.legend(fontsize=12)
-        plt.xticks(fontsize=12)
-        plt.yticks(fontsize=12)
-        plt.legend(fontsize=12)
-        plt.grid()
-        plt.show()
-        #plt.savefig("window_packets.pdf")
-        plt.close()
-
-        plt.figure(figsize=(8, 8))
-        for j in range(num_methods):
-            plt.plot(20*size_list, 20*rxs[j], c=COLORS1[j], label=f'{labels[j]}')
-        plt.xlabel('Generated Payload data [bytes]',fontsize=16)
-        plt.ylabel('Received Payload data [bytes]',fontsize=16)
-        plt.title(f'Throughput',fontsize=18)
-        plt.legend(fontsize=12)
-        plt.xticks(fontsize=12)
-        plt.yticks(fontsize=12)
-        plt.legend(fontsize=12)
-        plt.grid()
-        plt.show()
-        #plt.savefig("window_throughput.pdf")
-        plt.close()
-
-        plt.figure(figsize=(8, 8))
-        for j in range(num_methods):
-            plt.plot(size_list, rxs[j] / txs[j], c=COLORS1[j], label=f'{labels[j]}')
-        plt.xlabel('Generated LoRa packets',fontsize=16)
-        plt.ylabel('PDR [%]',fontsize=16)
-        plt.title(f'Packet Delivery Ratio PDR',fontsize=18)
-        plt.legend(fontsize=12)
-        plt.xticks(fontsize=12)
-        plt.yticks(fontsize=12)
-        plt.legend(fontsize=12)
-        plt.grid()
-        plt.show()
-        #plt.savefig("window_pdr.pdf")
-        plt.close()
-
-
-    def plot_usage_time(self, m, size_list, usage_time_all, labels):
-
-        num_methods = len(labels)
-        plt.figure(figsize=(8, 8))
-        for j in range(num_methods):
-            plt.plot(size_list, usage_time_all[j,:,m], label=f'SF{m+7} {labels[j]}')
-        plt.xlabel('Number of EDs', fontsize=16)
-        plt.ylabel('Time ratio [%]', fontsize=16)
-        plt.title(f'Channel usage SF{m+7}', fontsize=18)
-        plt.legend(fontsize=12)
-        plt.xticks(fontsize=12)
-        plt.yticks(fontsize=12)
-        plt.legend(fontsize=12)
-        plt.grid()
-        #plt.show()
-        plt.savefig(f"window_times_SF{m+7}.pdf")
-        plt.close()
-
-
-    def beacon_results_plots(self, txs, rxs, labels):
-
-        num_methods, numBeacons = txs.shape
-
-        plt.figure(figsize=(8, 8))
-        #plt.plot(range(numBeacons), with_coverage, c='k', label='EDs with coverage')
-        for j in range(num_methods):
-            #plt.plot(range(numBeacons), txs[j]/self.numDevices, c=COLORS1[j], label=f'TX {labels[j]}')
-            plt.plot(range(numBeacons), txs[j], c=COLORS1[j], label=f'TX {labels[j]}')
-            #plt.plot(range(numBeacons), rxs[j]/self.numDevices, c=COLORS1[j], linestyle='dashed', label=f'RX {labels[j]}')
-            plt.plot(range(numBeacons), rxs[j], c=COLORS1[j], linestyle='dashed', label=f'RX {labels[j]}')
-        plt.xlabel('beacon number', fontsize=16)
-        plt.ylabel('packets', fontsize=16)
-        plt.title(f'Sent & Received LoRa packets per beacon', fontsize=18)
-        plt.xticks(fontsize=12)
-        plt.yticks(fontsize=12)
-        plt.legend(fontsize=12)
+    def plot_heatmapSF(self, random_sample=False, eds_sample=1):
+        """
+        Plot heatmap showing best SF across all satellites.
+        For each device and timeslot, shows the optimal SF from ANY satellite.
+        """
+        cmap = plt.cm.rainbow
+        bounds = np.array([0, 9, 10, 11, 12, 13, 14])
+        norm = colors.BoundaryNorm(bounds, cmap.N)
+        
+        numDevices = eds_sample if random_sample else self.numDevices
+        device_sample = self.enddevices
+        if random_sample:
+            device_sample = random.sample(self.enddevices, numDevices)
+        
+        # Merge best SF from all satellites for each device
+        constellation_bestSF = np.array([ed.get_constellation_bestSF(self.constellation) 
+                                         for ed in device_sample])
+        
+        laptime = self.slottime * constellation_bestSF.shape[1]
+        
+        plt.figure(figsize=(12, 8))
+        im = plt.imshow(constellation_bestSF, interpolation='none', 
+                       extent=[0, laptime, 0, numDevices],
+                       cmap=cmap, norm=norm, aspect='auto')
+        
+        tick_positions = (bounds[:-1] + bounds[1:]) / 2
+        cbar = plt.colorbar(ticks=tick_positions)
+        cbar.set_label('Best DR (Constellation)', fontsize=12)
+        cbar.ax.tick_params(labelsize=12)
+        cbar.ax.set_yticklabels(['No Coverage', 'SF9', 'SF10', 'SF11', 'SF12', 'LRFHSS'])
+        
+        plt.xlabel('Time [seconds]', fontsize=14)
+        plt.ylabel('Device ID', fontsize=14)
+        plt.title(f'Constellation Visibility: Best DR per Device ({self.numSatellites} Satellites)', 
+                  fontsize=16)
         plt.tight_layout()
-        plt.grid()
         plt.show()
-        #plt.savefig("beacon_packets.pdf")
-        plt.close()
-
-        plt.figure(figsize=(8, 8))
-        for j in range(num_methods):
-            plt.plot(range(numBeacons), 20*rxs[j], c=COLORS1[j], label=f'{labels[j]}')
-        plt.xlabel('beacon number', fontsize=16)
-        plt.ylabel('Received Payload data [bytes]', fontsize=16)
-        plt.title(f'Throughput', fontsize=18)
-        plt.xticks(fontsize=12)
-        plt.yticks(fontsize=12)
-        plt.legend(fontsize=12)
-        plt.grid()
-        plt.show()
-        #plt.savefig("beacon_throughout.pdf")
-        plt.close()
-
-        plt.figure(figsize=(8, 8))
-        for j in range(num_methods):
-            plt.plot(range(numBeacons), rxs[j] / txs[j], c=COLORS1[j], label=f'{labels[j]}')
-        plt.xlabel('beacon number', fontsize=16)
-        plt.ylabel('PDR [%]', fontsize=16)
-        plt.title(f'Packet Delivery Ratio PDR', fontsize=18)
-        plt.xticks(fontsize=12)
-        plt.yticks(fontsize=12)
-        plt.legend(fontsize=12)
-        plt.grid()
-        plt.show()
-        #plt.savefig("beacons_pdr.pdf")
-        plt.close()
-
-
-    def plot_bestSF_ocurrences(self):
-
-        bestSF_per_node = np.array([ed.cached_bestSFs for ed in self.enddevices])
-        times = self.enddevices[0].cached_times
-
-        num_nodes, num_samples = bestSF_per_node.shape
-        count_matrix = np.zeros((6, num_samples), dtype=int)
     
-        for sf in range(7, 13):
-            count_matrix[sf-7] = np.sum(bestSF_per_node == sf, axis=0)
+
+    def plot_heatmapSF_ULperiods(self, uplink_period, random_sample=False, eds_sample=1):
+        """
+        Plot heatmap showing best SF with uplink period divisions.
+        Updated for multi-satellite constellation support.
+        
+        Parameters:
+        -----------
+        uplink_period : float
+            Duration of uplink window in seconds
+        random_sample : bool
+            Whether to sample random devices
+        eds_sample : int
+            Number of devices to sample if random_sample=True
+        """
+        numDevices = eds_sample if random_sample else self.numDevices
+        device_sample = self.enddevices
+        if random_sample:
+            device_sample = random.sample(self.enddevices, numDevices)
+
+        # Get constellation-wide best SF for each device
+        constellation_bestSF = np.array([ed.get_constellation_bestSF(self.constellation) 
+                                        for ed in device_sample])
+        
+        laptime = self.slottime * constellation_bestSF.shape[1]
+        
+        # Convert zeros to NaN (transparent - no coverage)
+        plot_data = constellation_bestSF.astype(float)
+        plot_data[plot_data == 0] = np.nan
+
 
         plt.figure(figsize=(12, 8))
 
-        for sf in range(7, 13):
-            plt.plot(times, count_matrix[sf-7], label=f'SF{sf}')
-
-        plt.title(f'Best SF ocurrences for {num_nodes} end-devices', fontsize=16)
-        plt.xlabel('Time', fontsize=14)
-        plt.ylabel('Ocurrences [devices]', fontsize=14)
-        plt.legend()
-        plt.grid()
-        plt.tight_layout()
-        plt.show()
-        #plt.savefig("img/ocurrences.pdf")
-
-
-    def plot_availabeSF(self):
-
-        availableSF = np.array(self.enddevices[0].cached_availableSFs[:-1])
-        laptime = self.slottime * availableSF.shape[0]
-
-        plt.figure(figsize=(10, 6))
-        im = plt.imshow(availableSF.T, interpolation='none', aspect='auto',
-                        extent=[0, laptime, 12.5, 6.5])
-
-        plt.xlabel('Lap Time [seconds]')
-        plt.ylabel('SF')
-        plt.yticks(ticks=[12, 11, 10, 9, 8, 7])
-        plt.title('Available SFs for a random ED')
-        plt.show()
-        #plt.savefig("img/availableSF_example.jpg")
-
-
-
-    def plot_heatmapSF(self, random_sample=False, eds_sample=1):
-        
-        cmap = plt.cm.rainbow
-        bounds = np.array([0,10,11,12,13,14]) # [0,7,8,9,10,11,12,13]
-        norm = colors.BoundaryNorm(bounds, cmap.N)
-        numDevices = self.numDevices
-
-        # random sample
-        if random_sample:
-            numDevices = eds_sample
-            device_sample = random.sample(self.enddevices, numDevices)
-            bestSF_per_node = np.array([ed.cached_bestSFs for ed in device_sample])
-        # all EDs
-        else:
-            bestSF_per_node = np.array([ed.cached_bestSFs for ed in self.enddevices])
-
-        # trim between first rise time until last set time
-        non_zero_cols = ~np.all(bestSF_per_node == 0, axis=0)
-        #filtered_SF = bestSF_per_node[:, non_zero_cols]
-        filtered_SF = bestSF_per_node
-
-        laptime = self.slottime * bestSF_per_node.shape[1]
-
-        plt.figure(figsize=(10, 6))
-        im = plt.imshow(np.array(filtered_SF), interpolation='none', extent=[0, laptime, 0, numDevices], 
-                        cmap=cmap, norm=norm, aspect='auto')
-        tick_positions = (bounds[:-1] + bounds[1:]) / 2
-
-        cbar = plt.colorbar(ticks=tick_positions)
-        cbar.set_label('DR', fontsize=12)
-        cbar.ax.tick_params(labelsize=12)
-        #cbar.ax.set_yticklabels([str(int(tick)) for tick in bounds[:-1]])
-        cbar.ax.set_yticklabels(['0', 'SF10', 'SF11', 'SF12', 'LRFHSS'])
-        
-        plt.xlabel('Lap Time [seconds]')
-        plt.ylabel('Device')
-        plt.title('Visibility window with Best Data Rate per End Device')
-        plt.tight_layout()
-        plt.show()
-        #plt.savefig("img/visibilty_example2.jpg")
-
-
-    def plot_heatmapSF_ULperiods(self, uplink_period, random_sample=False, eds_sample=1):
-
-        numDevices = self.numDevices
-        if random_sample:
-            numDevices = eds_sample
-            device_sample = random.sample(self.enddevices, numDevices)
-            bestSF_per_node = np.array([ed.cached_bestSFs for ed in device_sample])
-        else:
-            bestSF_per_node = np.array([ed.cached_bestSFs for ed in self.enddevices])
-        
-        laptime = self.slottime * bestSF_per_node.shape[1]
-        
-        # Convert zeros to NaN (which will be transparent in the plot)
-        plot_data = bestSF_per_node.astype(float)  # Convert to float to use NaN
-        plot_data[plot_data == 0] = np.nan
-        
-        plt.figure(figsize=(10, 8))
-        
-        colors_list = ['blue', 'cyan', 'yellowgreen', 'red']  # SF10, SF11, SF12, LRFHSS
+        # Color mapping: SF9=darkblue, SF10=blue, SF11=cyan, SF12=yellowgreen, LRFHSS=red
+        colors_list = ['darkblue', 'blue', 'cyan', 'yellowgreen', 'red']
         cmap = colors.ListedColormap(colors_list)
-        
-        # Updated bounds for SF10 (10), SF11 (11), SF12 (12), LRFHSS (13/14)
-        bounds = [9.5, 10.5, 11.5, 12.5, 14.5]  # Added lower bound for SF10
+
+        # Bounds for SF9 (9), SF10 (10), SF11 (11), SF12 (12), LRFHSS (13/14)
+        bounds = [8.5, 9.5, 10.5, 11.5, 12.5, 14.5]
         norm = colors.BoundaryNorm(bounds, len(colors_list))
-        
+
         im = plt.imshow(plot_data, interpolation='none', 
                     extent=[0, laptime, 0, numDevices],
                     cmap=cmap, norm=norm, aspect='auto')
-        
-        cbar = plt.colorbar(im, ticks=[10, 11, 12, 13.5])  # Added SF10 tick
-        cbar.set_label('DR', fontsize=12)
+
+        cbar = plt.colorbar(im, ticks=[9, 10, 11, 12, 13.5])
+        cbar.set_label('Best DR (Constellation)', fontsize=12)
         cbar.ax.tick_params(labelsize=12)
-        cbar.ax.set_yticklabels(['SF10', 'SF11', 'SF12', 'LRFHSS'])  # Added SF10 label
-        
+        cbar.ax.set_yticklabels(['SF9', 'SF10', 'SF11', 'SF12', 'LRFHSS'])
+
         # Add vertical lines for uplink phases
-        for i in range(1, int(laptime / uplink_period)):
-            plt.axvline(x=i * uplink_period, color='black', linestyle='--')
+        num_beacons = int(laptime / uplink_period)
+        for i in range(1, num_beacons):
+            plt.axvline(x=i * uplink_period, color='black', linestyle='--', 
+                    linewidth=1.5, alpha=0.7)
         
-        plt.xlabel('Lap Time [seconds]', fontsize=12)
-        plt.ylabel('Device', fontsize=12)
-        plt.title('Visibility window with Best Data Rate per End Device', fontsize=14)
+        plt.xlabel('Time [seconds]', fontsize=14)
+        plt.ylabel('Device ID', fontsize=14)
+        plt.title(f'Visibility Windows with Uplink Periods - '
+                f'{self.numSatellites} Satellite Constellation', fontsize=16)
         
-        # Make sure the background is white
+        # White background
         ax = plt.gca()
         ax.set_facecolor('white')
-        #plt.savefig("beacons.pdf")
+        
+        # Add annotation showing uplink period
+        plt.text(0.02, 0.98, f'Uplink period: {uplink_period}s\nBeacons: {num_beacons}',
+                transform=ax.transAxes, fontsize=10,
+                verticalalignment='top',
+                bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+        
+        plt.tight_layout()
+        #plt.savefig(f"constellation_beacons_{len(self.satnames)}sats.pdf")
         plt.show()
+        plt.close()
 
 
     def plot_bestSF_map(self):
-
+        """
+        Plot animated map showing best SF available from ANY satellite in constellation.
+        Updated for multi-satellite support.
+        """
         cmap = plt.cm.rainbow
-        bounds = np.array([0,10,11,12,13,14]) # [0,7,8,9,10,11,12,13]
+        bounds = np.array([0, 9, 10, 11, 12, 13, 14])
         norm = colors.BoundaryNorm(bounds, cmap.N)
         tick_positions = (bounds[:-1] + bounds[1:]) / 2
-
-        fig, ax = plt.subplots(figsize=(12, 10), subplot_kw={'projection': ccrs.Robinson()})
+        
+        fig, ax = plt.subplots(figsize=(14, 10), subplot_kw={'projection': ccrs.Robinson()})
         ax.add_feature(cfeature.COASTLINE)
         ax.add_feature(cfeature.BORDERS, linestyle=':')
         ax.gridlines(draw_labels=True)
         ax.set_extent([FR_E-8, FR_W+8, FR_S-8, FR_N+8], crs=ccrs.PlateCarree())
-
+        
+        # Device locations
         latitudes = np.array([ed.lat for ed in self.enddevices])
         longitudes = np.array([ed.lon for ed in self.enddevices])
-        bestSF_per_node = np.array([ed.cached_bestSFs for ed in self.enddevices])
-        num_nodes, num_samples = bestSF_per_node.shape
-
-        times = self.enddevices[0].cached_times
-        bestSF_per_node_attime = bestSF_per_node[:, 0]
-        current_sat_lat = self.gateway.cached_sat_lat[0]
-        current_sat_lon = self.gateway.cached_sat_lon[0]
-
-        plt.title(f"Best DR at time {times[0].strftime('%H:%M:%S')}", fontsize=18)
-
-        scatter = ax.scatter(longitudes, latitudes, c=bestSF_per_node_attime, cmap=cmap, norm=norm, s=50, transform=ccrs.PlateCarree())
-        ax.scatter(current_sat_lon, current_sat_lat, marker='*', color='magenta', s=70, transform=ccrs.PlateCarree(), label='Satellite')
-
+        
+        # Get constellation-wide best SF for each device
+        constellation_bestSF = np.array([ed.get_constellation_bestSF(self.constellation) 
+                                        for ed in self.enddevices])
+        num_nodes, num_samples = constellation_bestSF.shape
+        
+        # Get times from first device
+        times = self.enddevices[0].cached_times[self.constellation[0]]
+        
+        # Get satellite positions for all satellites
+        sat_positions = {}
+        for satname in self.constellation:
+            gateway = self.gateways[satname]
+            sat_positions[satname] = {
+                'lat': gateway.cached_sat_lat,
+                'lon': gateway.cached_sat_lon
+            }
+    
+        # Define distinct colors/markers for different satellites
+        sat_colors = ['magenta', 'cyan', 'yellow', 'lime', 'orange', 
+                    'red', 'blue', 'green', 'purple']
+        sat_markers = ['*', 'P', 'X', 'D', 's', '^', 'v', '<', '>']
+        
+        # Initial frame
+        bestSF_per_node_attime = constellation_bestSF[:, 0]
+        
+        plt.title(f"Best DR (Constellation) at {times[0].strftime('%H:%M:%S')} - "
+                f"{self.numSatellites} Satellites", fontsize=18)
+        
+        # Plot devices colored by best SF
+        scatter = ax.scatter(longitudes, latitudes, c=bestSF_per_node_attime, 
+                            cmap=cmap, norm=norm, s=50, 
+                            transform=ccrs.PlateCarree(), zorder=5)
+        
+        # Plot all satellites
+        sat_scatters = []
+        for idx, satname in enumerate(self.constellation):
+            sat_lat = sat_positions[satname]['lat'][0]
+            sat_lon = sat_positions[satname]['lon'][0]
+            color = sat_colors[idx % len(sat_colors)]
+            marker = sat_markers[idx % len(sat_markers)]
+            
+            sat_scatter = ax.scatter(sat_lon, sat_lat, marker=marker, 
+                                    color=color, s=200, edgecolors='black', linewidths=2,
+                                    transform=ccrs.PlateCarree(), zorder=10,
+                                    label=f'{satname[:12]}')  # Truncate long names
+        
+        # Colorbar
         cbar = plt.colorbar(scatter, ticks=tick_positions, pad=0.1)
-        cbar.set_label('DR', fontsize=12)
+        cbar.set_label('Best DR (from any satellite)', fontsize=12)
         cbar.ax.tick_params(labelsize=12)
-        #cbar.ax.set_yticklabels([str(int(tick)) for tick in bounds[:-1]])
-        cbar.ax.set_yticklabels(['0', 'SF10', 'SF11', 'SF12', 'LRFHSS'])
-
+        cbar.ax.set_yticklabels(['No Coverage', 'SF9', 'SF10', 'SF11', 'SF12', 'LRFHSS'])
+        
+        # Legend for satellites
+        ax.legend(loc='lower left', fontsize=8, ncol=min(3, self.numSatellites))
+        
         def update(frame):
-
+            """Update function for animation"""
             ax.clear()
             ax.add_feature(cfeature.COASTLINE)
             ax.add_feature(cfeature.BORDERS, linestyle=':')
             ax.gridlines(draw_labels=True)
             ax.set_extent([FR_E-8, FR_W+8, FR_S-8, FR_N+8], crs=ccrs.PlateCarree())
-
-            bestSF_per_node_attime = bestSF_per_node[:, frame]
-            current_sat_lat = self.gateway.cached_sat_lat[frame]
-            current_sat_lon = self.gateway.cached_sat_lon[frame]
-
-            plt.title(f"Best DR at time {times[frame].strftime('%H:%M:%S')}", fontsize=18)
-
-            ax.scatter(longitudes, latitudes, c=bestSF_per_node_attime, cmap=cmap, norm=norm, s=50, transform=ccrs.PlateCarree())
-            ax.scatter(current_sat_lon, current_sat_lat, marker='*', color='magenta', s=80, transform=ccrs.PlateCarree(), label='Satellite')
-
+            
+            # Update best SF from constellation
+            bestSF_per_node_attime = constellation_bestSF[:, frame]
+            
+            plt.title(f"Best DR (Constellation) at {times[frame].strftime('%H:%M:%S')} - "
+                    f"{self.numSatellites} Satellites", fontsize=18)
+            
+            # Plot devices
+            ax.scatter(longitudes, latitudes, c=bestSF_per_node_attime, 
+                    cmap=cmap, norm=norm, s=50, 
+                    transform=ccrs.PlateCarree(), zorder=5)
+            
+            # Plot all satellites at current frame
+            for idx, satname in enumerate(self.constellation):
+                sat_lat = sat_positions[satname]['lat'][frame]
+                sat_lon = sat_positions[satname]['lon'][frame]
+                color = sat_colors[idx % len(sat_colors)]
+                marker = sat_markers[idx % len(sat_markers)]
+                
+                ax.scatter(sat_lon, sat_lat, marker=marker, 
+                            color=color, s=200, edgecolors='black', linewidths=2,
+                            transform=ccrs.PlateCarree(), zorder=10,
+                            label=f'{satname[:12]}')
+            
+            # Add legend
+            ax.legend(loc='lower left', fontsize=8, ncol=min(3, self.numSatellites))
+            
             fig.canvas.draw()
 
-    
-        anim = FuncAnimation(fig, update, frames=num_samples, interval=1)
-        writer = PillowWriter(fps=10, metadata=dict(artist='Me'))
+        # Create animation
+        anim = FuncAnimation(fig, update, frames=num_samples, interval=100)
+        writer = PillowWriter(fps=20, metadata=dict(artist='Constellation Tracker'))
+
+        # Save animation
+        output_file = f'constellation_bestSF_{self.numSatellites}sats2.gif'
+        anim.save(output_file, writer=writer)
+        print(f"✓ Animation saved as {output_file}")
 
         #plt.show()
-        anim.save('bestSF_test.gif', writer=writer)
-
-
-    def plot_availableSF_map(self, sf):
-
-        cmap = plt.cm.rainbow
-        bounds = np.array([0,1,2,3,4,5]) # [0,7,8,9,10,11,12,13]
-        norm = colors.BoundaryNorm(bounds, cmap.N)
-        tick_positions = (bounds[:-1] + bounds[1:]) / 2
-
-        fig, ax = plt.subplots(figsize=(12, 10), subplot_kw={'projection': ccrs.Robinson()})
-        ax.add_feature(cfeature.COASTLINE)
-        ax.add_feature(cfeature.BORDERS, linestyle=':')
-        ax.gridlines(draw_labels=True)
-        ax.set_extent([FR_E-8, FR_W+8, FR_S-8, FR_N+8], crs=ccrs.PlateCarree())
-
-        latitudes = np.array([ed.lat for ed in self.enddevices])
-        longitudes = np.array([ed.lon for ed in self.enddevices])
-
-        # obtain the status of each node at each time
-        # possible status are: succes, failure due to doppler shift,
-        # failure due to doppler rate, failure due to both doppler shift and rate
-        # and failure due to range
-        fail_status = np.array([ed.fail_status(sf) for ed in self.enddevices])
-                               
-        num_nodes, num_samples = fail_status.shape
-
-        times = self.enddevices[0].cached_times
-        fail_status_per_node_attime = fail_status[:, 0]
-        current_sat_lat = self.gateway.cached_sat_lat[0]
-        current_sat_lon = self.gateway.cached_sat_lon[0]
-
-        plt.title(f"SF{sf} status at time {times[0].strftime('%H:%M:%S')}", fontsize=18)
-
-        scatter = ax.scatter(longitudes, latitudes, c=fail_status_per_node_attime, cmap=cmap, norm=norm, s=50, transform=ccrs.PlateCarree())
-        ax.scatter(current_sat_lon, current_sat_lat, marker='*', color='magenta', s=70, transform=ccrs.PlateCarree(), label='Satellite')
-
-        cbar = plt.colorbar(scatter, ticks=tick_positions, pad=0.1)
-        cbar.set_label('DR', fontsize=12)
-        cbar.ax.tick_params(labelsize=12)
-        #cbar.ax.set_yticklabels([str(int(tick)) for tick in bounds[:-1]])
-        cbar.ax.set_yticklabels(['Success', 'No link', 'Rate & Shift Fail', 'Rate failure','Shift fail'])
-
-        def update(frame):
-
-            ax.clear()
-            ax.add_feature(cfeature.COASTLINE)
-            ax.add_feature(cfeature.BORDERS, linestyle=':')
-            ax.gridlines(draw_labels=True)
-            ax.set_extent([FR_E-8, FR_W+8, FR_S-8, FR_N+8], crs=ccrs.PlateCarree())
-
-            fail_status_per_node_attime = fail_status[:, frame]
-            current_sat_lat = self.gateway.cached_sat_lat[frame]
-            current_sat_lon = self.gateway.cached_sat_lon[frame]
-
-            plt.title(f"SF{sf} status at time {times[frame].strftime('%H:%M:%S')}", fontsize=18)
-
-            ax.scatter(longitudes, latitudes, c=fail_status_per_node_attime, cmap=cmap, norm=norm, s=50, transform=ccrs.PlateCarree())
-            ax.scatter(current_sat_lon, current_sat_lat, marker='*', color='magenta', s=80, transform=ccrs.PlateCarree(), label='Satellite')
-
-            fig.canvas.draw()
-
-    
-        anim = FuncAnimation(fig, update, frames=num_samples, interval=1)
-        writer = PillowWriter(fps=10, metadata=dict(artist='Me'))
-
-        #plt.show()
-        anim.save(f'SF{sf}_status.gif', writer=writer)
+        plt.close()

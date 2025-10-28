@@ -19,6 +19,27 @@ KINEIS_CONSTELLATION = ['KINEIS-1A', 'KINEIS-1B', 'KINEIS-1C', 'KINEIS-1D', 'KIN
                         'KINEIS-4A', 'KINEIS-4B', 'KINEIS-4C', 'KINEIS-4D', 'KINEIS-4E',
                         'KINEIS-5A', 'KINEIS-5B', 'KINEIS-5C', 'KINEIS-5D', 'KINEIS-5E']
 
+STARLINK_CONSTELLATION1 = [
+    'STARLINK-3235',
+    'STARLINK-30834',
+    'STARLINK-4684',
+    'STARLINK-31740',
+    'STARLINK-31706',
+    'STARLINK-4609',
+    'STARLINK-4770',
+    'STARLINK-31040',
+    'STARLINK-3271'
+]
+
+STARLINK_CONSTELLATION2 = [
+    'STARLINK-4616',
+    'STARLINK-2413',
+    'STARLINK-2396',
+    'STARLINK-5003',
+    'STARLINK-4629',
+    'STARLINK-3449'
+]
+
 COLORS1 = [u'#1f77b4', u'#ff7f0e', u'#2ca02c', u'#d62728', u'#9467bd',
            u'#8c564b', u'#e377c2', u'#7f7f7f', u'#bcbd22', u'#17becf']
 
@@ -498,13 +519,25 @@ def doppler(maxE, t):
     return [doppler_shift, doppler_rate]
 
 
-# return KINEIS-1A satellite as EarthSatellite module
-def load_satellite(satname='KINEIS-1A'):
-    station_url = f'https://celestrak.org/NORAD/elements/gp.php?NAME=KINEIS&FORMAT=TLE'
-    stations = load.tle_file(station_url)
+def load_satellite(satname):
+
+    constellation = satname.split('-')[0]
+    tle_filename = f'tle_{constellation}.txt'
+    
+    # Download if not cached
+    if not os.path.exists(tle_filename):
+        print(f"Downloading {constellation} TLE data...")
+        station_url = f'https://celestrak.org/NORAD/elements/gp.php?GROUP={constellation}&FORMAT=TLE'
+        stations = load.tle_file(station_url, filename=tle_filename)
+    else:
+        stations = load.tle_file(tle_filename)
+    
     by_name = {sat.name: sat for sat in stations}
-    satellite = by_name[satname]
-    return satellite
+    
+    if satname not in by_name:
+        raise ValueError(f"Satellite '{satname}' not found in {constellation}")
+    
+    return by_name[satname]
 
 
 # return a random uniformly distributed point in France as lat, lon coordinates
@@ -693,7 +726,7 @@ def plot_max_lora_nodes():
 # Plotting Time on Air for different Spreading Factors
 def plot_toa():
 
-    plt.figure(figsize=(12, 8))
+    plt.figure(figsize=(10, 5))
 
     for sf, max_pl in zip(range(7, 13), MAX_PL_LORA):
         payload_bytes = np.arange(1, max_pl)
@@ -703,15 +736,17 @@ def plot_toa():
     for CR, max_pl in zip([1,2], MAX_PL_LRFHSS):
         payload_bytes = np.arange(1, max_pl)
         time_on_air = [lrfhss_toa(int(x), CR) for x in payload_bytes]
-        plt.plot(payload_bytes, time_on_air, label=f'LR-FHSS {CR}/3')
+        plt.plot(payload_bytes, time_on_air, label=f'LR-FHSS {CR}/3', linestyle='--')
 
     # Plot settings
     plt.title('LoRa and LR-FHSS Time on Air vs Payload Size\n(LoRa BW=125 kHz)', fontsize=16)
     plt.xlabel('Payload Size [bytes]', fontsize=14)
     plt.ylabel('Time on Air [seconds]', fontsize=14)
-    plt.legend(title='LoRa SF / LR-FHSS CR')
+    plt.legend(title='LoRa SF / LR-FHSS CR', fontsize=12)
     plt.grid(True, linestyle='--', alpha=0.7)
     plt.tight_layout()
+    plt.yticks(fontsize=12)
+    plt.xticks(fontsize=12)
     #plt.show()
     plt.savefig("img/timeonair.pdf")
 
@@ -1361,7 +1396,12 @@ def plot_sat_track_constellation(constellation, points, t0, t1, delta):
     plt.show()
     plt.savefig('constellation_track.pdf')
 
-    
+
+################################################################################
+######################## PLOTTING DYNAMIC CONSTELLATION ########################
+################################################################################
+
+
 def animate_constellation_groundtrack(constellation, t0, t1, output_filename='constellation_track.gif', fps=10, delta=60):
     """
     Animate satellite constellation ground tracks and save as GIF.
@@ -1381,13 +1421,6 @@ def animate_constellation_groundtrack(constellation, t0, t1, output_filename='co
     delta : int
         Time step in seconds between frames (default: 60)
     """
-    from skyfield.api import load, wgs84
-    from datetime import timedelta
-    import matplotlib.pyplot as plt
-    import cartopy.crs as ccrs
-    import cartopy.feature as cfeature
-    from matplotlib.animation import FuncAnimation, PillowWriter
-    import numpy as np
     
     # Define markers for letters A, B, C, D, E
     letter_markers = {
@@ -1533,4 +1566,419 @@ def animate_constellation_groundtrack(constellation, t0, t1, output_filename='co
     writer = PillowWriter(fps=fps, metadata=dict(artist='Me'))
     anim.save(output_filename, writer=writer)
     print(f"Animation saved as {output_filename}")
+    plt.close()
+
+
+def animate_constellation_groundtrack_generic(constellation, t0, t1, output_filename='constellation_track.gif', 
+                                             fps=10, delta=60, trail_length=None, show_trail=True):
+    """
+    Animate satellite constellation ground tracks with uniform styling.
+    All satellites shown as identical black dots without distinguishing markers.
+    
+    Parameters:
+    -----------
+    constellation : list
+        List of satellite names (works with any constellation)
+    t0 : Skyfield Time object or datetime
+        Start time
+    t1 : Skyfield Time object or datetime
+        End time
+    output_filename : str
+        Output GIF filename (default: 'constellation_track.gif')
+    fps : int
+        Frames per second for the animation (default: 10)
+    delta : int
+        Time step in seconds between frames (default: 60)
+    trail_length : int, optional
+        Number of past positions to show in trail (None = show all)
+    show_trail : bool
+        Whether to show satellite trails (default: True)
+    """
+
+    # Handle Skyfield time objects vs datetime objects
+    if hasattr(t0, 'utc_datetime'):
+        start_dt = t0.utc_datetime()
+        end_dt = t1.utc_datetime()
+    else:
+        start_dt = t0
+        end_dt = t1
+    
+    # Load satellites
+    satellites = []
+    for satname in constellation:
+        satellites.append(load_satellite(satname))
+    
+    # Generate time samples using delta
+    total_seconds = (end_dt - start_dt).total_seconds()
+    num_samples = int(total_seconds / delta)
+    times = [start_dt + timedelta(seconds=i*delta) for i in range(num_samples)]
+    
+    print(f"Animating {len(constellation)} satellites")
+    print(f"Generating {num_samples} frames with {delta} second timesteps")
+    print(f"Total animation duration: {total_seconds/3600:.2f} hours")
+    
+    # Convert datetime back to Skyfield times for satellite calculations
+    ts = load.timescale()
+    skyfield_times = [ts.utc(t.year, t.month, t.day, t.hour, t.minute, t.second) for t in times]
+    
+    # Pre-compute all satellite positions for all times
+    print("Computing satellite positions...")
+    sat_positions = []  # List of lists: [sat_idx][time_idx] = (lat, lon)
+    for idx, satellite in enumerate(satellites):
+        positions = []
+        for t in skyfield_times:
+            sat = satellite.at(t)
+            lat, lon = wgs84.latlon_of(sat)
+            positions.append((lat.degrees, lon.degrees))
+        sat_positions.append(positions)
+        if (idx + 1) % 10 == 0:
+            print(f"  Computed {idx + 1}/{len(satellites)} satellites")
+    
+    print("Creating animation...")
+    
+    # Setup figure
+    fig = plt.figure(figsize=(16, 8))
+    ax = plt.axes(projection=ccrs.Robinson())
+    
+    def init():
+        """Initialize the animation"""
+        ax.clear()
+        ax.add_feature(cfeature.LAND, facecolor='lightgray')
+        ax.add_feature(cfeature.OCEAN, facecolor='lightblue')
+        ax.add_feature(cfeature.COASTLINE, linewidth=0.5)
+        ax.add_feature(cfeature.BORDERS, linestyle=':', linewidth=0.5)
+        ax.gridlines(draw_labels=True, linewidth=0.5, alpha=0.5)
+        ax.set_global()
+        return []
+    
+    def update(frame):
+        """Update function for animation"""
+        ax.clear()
+        ax.add_feature(cfeature.LAND, facecolor='lightgray')
+        ax.add_feature(cfeature.OCEAN, facecolor='lightblue')
+        ax.add_feature(cfeature.COASTLINE, linewidth=0.5)
+        ax.add_feature(cfeature.BORDERS, linestyle=':', linewidth=0.5)
+        ax.gridlines(draw_labels=True, linewidth=0.5, alpha=0.5)
+        ax.set_global()
+        
+        # Plot all satellites uniformly (black dots)
+        for sat_idx, positions in enumerate(sat_positions):
+            # Plot trajectory trail (past positions)
+            if show_trail and frame > 0:
+                # Determine trail start index
+                if trail_length is None:
+                    start_idx = 0
+                else:
+                    start_idx = max(0, frame - trail_length)
+                
+                trail_lats = [pos[0] for pos in positions[start_idx:frame+1]]
+                trail_lons = [pos[1] for pos in positions[start_idx:frame+1]]
+                
+                ax.plot(trail_lons, trail_lats, 
+                       color='black', 
+                       linewidth=1.0, alpha=0.3,
+                       transform=ccrs.PlateCarree())
+            
+            # Plot current position (uniform black dot)
+            current_lat, current_lon = positions[frame]
+            ax.scatter(current_lon, current_lat, 
+                      color='black',
+                      marker='o', s=50,
+                      edgecolors='white', linewidths=0.5,
+                      transform=ccrs.PlateCarree(),
+                      zorder=5)
+        
+        plt.title(f'Constellation Ground Track: {times[frame].strftime("%Y-%m-%d %H:%M:%S UTC")} ' + 
+                 f'({len(constellation)} satellites, Δt={delta}s)', 
+                 fontsize=14)
+        
+        # Add satellite count annotation
+        ax.text(0.02, 0.02, f'{len(constellation)} satellites',
+               transform=ax.transAxes, fontsize=10,
+               bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+        
+        fig.canvas.draw()
+        return []
+    
+    # Create animation
+    anim = FuncAnimation(fig, update, init_func=init, 
+                        frames=num_samples, interval=1000//fps, blit=False)
+    
+    # Save as GIF
+    print(f"Saving animation to {output_filename}...")
+    writer = PillowWriter(fps=fps, metadata=dict(artist='Constellation Tracker'))
+    anim.save(output_filename, writer=writer)
+    print(f"✓ Animation saved as {output_filename}")
+    print(f"  Duration: {num_samples/fps:.1f} seconds at {fps} FPS")
+    plt.close()
+
+
+################################################################################
+########################### PLOTTING NETWORK RESULTS ###########################
+################################################################################
+
+# reception results for single window simulation
+def single_window_plots(numSats, size_list, txs, total_rxs, unique_rxs, labels):
+
+    # -----------------------------
+    # Plot 1: TX / Total RX / Unique RX per beacon
+    # -----------------------------
+    num_methods = len(labels)
+    plt.figure(figsize=(10, 8))
+    
+    for j in range(num_methods):
+        # Plot transmitted packets (scheduled) - solid line, circles
+        plt.plot(size_list, txs[j], c=COLORS1[j], 
+                linestyle='solid', linewidth=2.5, 
+                marker='o', markersize=7, markerfacecolor=COLORS1[j],
+                alpha=0.9, label=f'TX {labels[j]}')
+        
+        # Plot total receptions (with duplicates) - dashed line, squares
+        plt.plot(size_list, total_rxs[j], c=COLORS1[j], 
+                linestyle='--', linewidth=2.0, dashes=(5, 3),
+                marker='s', markersize=7, markerfacecolor='white', 
+                markeredgecolor=COLORS1[j], markeredgewidth=2,
+                alpha=0.85, label=f'Total RX {labels[j]}')
+        
+        # Plot unique receptions - dash-dot line, triangles
+        plt.plot(size_list, unique_rxs[j], c=COLORS1[j], 
+                linestyle='-.', linewidth=2.0, dashes=(8, 3, 2, 3),
+                marker='^', markersize=8, markerfacecolor='none', 
+                markeredgecolor=COLORS1[j], markeredgewidth=2,
+                alpha=0.8, label=f'Unique RX {labels[j]}')
+    
+    # Plot reference line: generated = transmitted (ideal case)
+    plt.plot(size_list, numSats * size_list, 'k--', linewidth=2, alpha=0.3, 
+            label='Generated (ideal)')
+    
+    plt.xlabel('Generated LoRa packets (# devices)', fontsize=16)
+    plt.ylabel('Packet count', fontsize=16)
+    plt.title(f'TX & RX Performance - {numSats} Satellite Constellation', 
+            fontsize=18)
+    plt.legend(fontsize=10, loc='best', ncol=2)
+    plt.xticks(fontsize=12)
+    plt.yticks(fontsize=12)
+    plt.grid(alpha=0.3)
+    plt.tight_layout()
+    plt.show()
+    #plt.savefig("constellation_window_packets.pdf")
+    plt.close()
+
+    # -----------------------------
+    # Plot 2: Packet Delivery ratio
+    # -----------------------------
+    num_methods = len(labels)
+    
+    plt.figure(figsize=(10, 6))
+    
+    for j in range(num_methods):
+        # PDR = unique receptions / generated packets
+        pdr = unique_rxs[j] / size_list
+        plt.plot(size_list, pdr, c=COLORS1[j], marker='o', 
+                linewidth=2, markersize=6, label=f'{labels[j]}')
+    
+    plt.xlabel('Generated LoRa packets (# devices)', fontsize=16)
+    plt.ylabel('Packet Delivery Ratio (PDR)', fontsize=16)
+    plt.title(f'PDR - {numSats} Satellite Constellation', fontsize=18)
+    plt.legend(fontsize=12)
+    plt.xticks(fontsize=12)
+    plt.yticks(fontsize=12)
+    plt.grid(alpha=0.3)
+    plt.ylim([0, 1.05])
+    plt.tight_layout()
+    plt.show()
+    #plt.savefig("constellation_pdr.pdf")
+    plt.close()
+
+
+"""
+TO BE UPDATED FOR NEW CONSTELALTION SCENARIO
+
+def plot_usage_time(m, size_list, usage_time_all, labels):
+
+    num_methods = len(labels)
+    plt.figure(figsize=(8, 8))
+    for j in range(num_methods):
+        plt.plot(size_list, usage_time_all[j,:,m], label=f'SF{m+7} {labels[j]}')
+    plt.xlabel('Number of EDs', fontsize=16)
+    plt.ylabel('Time ratio [%]', fontsize=16)
+    plt.title(f'Channel usage SF{m+7}', fontsize=18)
+    plt.legend(fontsize=12)
+    plt.xticks(fontsize=12)
+    plt.yticks(fontsize=12)
+    plt.legend(fontsize=12)
+    plt.grid()
+    #plt.show()
+    plt.savefig(f"window_times_SF{m+7}.pdf")
+    plt.close()
+"""
+
+def beacon_results_plots(txs, total_rxs, unique_rxs, labels, num_satellites=1):
+    """
+    Plot results for multiple beacons/windows.
+    
+    Parameters:
+    -----------
+    txs : array (num_methods, numBeacons)
+        Transmitted packets per beacon
+    total_rxs : array (num_methods, numBeacons)
+        Total receptions (with duplicates from multiple satellites)
+    unique_rxs : array (num_methods, numBeacons)
+        Unique receptions (unique devices)
+    labels : list
+        Method labels
+    num_satellites : int
+        Number of satellites in constellation
+    """
+    num_methods, numBeacons = txs.shape
+    beacon_range = range(numBeacons)
+
+    # -----------------------------
+    # Plot 1: TX / Total RX / Unique RX per beacon
+    # -----------------------------
+    plt.figure(figsize=(10, 8))
+    for j in range(num_methods):
+        # Transmitted packets - solid line, filled circles
+        plt.plot(beacon_range, txs[j], c=COLORS1[j], 
+                linestyle='solid', linewidth=2.5, 
+                marker='o', markersize=7, markerfacecolor=COLORS1[j],
+                alpha=0.9, label=f'TX {labels[j]}')
+        
+        # Total receptions (with duplicates) - dashed line, hollow squares
+        plt.plot(beacon_range, total_rxs[j], c=COLORS1[j], 
+                linestyle='--', linewidth=2.0, dashes=(5, 3),
+                marker='s', markersize=7, markerfacecolor='white', 
+                markeredgecolor=COLORS1[j], markeredgewidth=2,
+                alpha=0.85, label=f'Total RX {labels[j]}')
+        
+        # Unique receptions - dash-dot line, hollow triangles
+        plt.plot(beacon_range, unique_rxs[j], c=COLORS1[j], 
+                linestyle='-.', linewidth=2.0, dashes=(8, 3, 2, 3),
+                marker='^', markersize=8, markerfacecolor='none', 
+                markeredgecolor=COLORS1[j], markeredgewidth=2,
+                alpha=0.8, label=f'Unique RX {labels[j]}')
+
+    plt.xlabel('Beacon number', fontsize=16)
+    plt.ylabel('Packet count', fontsize=16)
+    plt.title(f'TX & RX per Beacon - {num_satellites} Satellite Constellation', fontsize=18)
+    plt.xticks(fontsize=12)
+    plt.yticks(fontsize=12)
+    plt.legend(fontsize=10, loc='best', ncol=2)
+    plt.grid(alpha=0.3)
+    plt.tight_layout()
+    plt.show()
+    #plt.savefig("beacon_packets.pdf")
+    plt.close()
+
+    # -----------------------------
+    # Plot 2: Throughput (unique receptions)
+    # -----------------------------
+    plt.figure(figsize=(10, 8))
+    for j in range(num_methods):
+        # Use unique_rxs for throughput (each device payload counted once)
+        plt.plot(beacon_range, 20 * unique_rxs[j], c=COLORS1[j], 
+                marker='o', markersize=5, linewidth=2,
+                label=f'{labels[j]}')
+        
+    plt.xlabel('Beacon number', fontsize=16)
+    plt.ylabel('Received Payload data [bytes]', fontsize=16)
+    plt.title('Throughput (Unique Receptions)', fontsize=18)
+    plt.xticks(fontsize=12)
+    plt.yticks(fontsize=12)
+    plt.legend(fontsize=12)
+    plt.grid(alpha=0.3)
+    plt.tight_layout()
+    plt.show()
+    #plt.savefig("beacon_throughput.pdf")
+    plt.close()
+
+    # -----------------------------
+    # Plot 3: PDR per beacon (unique_rxs / txs)
+    # -----------------------------
+    plt.figure(figsize=(10, 8))
+    for j in range(num_methods):
+        pdr = unique_rxs[j] / txs[j]  # PDR based on unique receptions
+        plt.plot(beacon_range, pdr, c=COLORS1[j], 
+                marker='o', markersize=5, linewidth=2,
+                label=f'{labels[j]}')
+        
+    plt.xlabel('Beacon number', fontsize=16)
+    plt.ylabel('PDR', fontsize=16)
+    plt.title('Packet Delivery Ratio (per Beacon)', fontsize=18)
+    plt.xticks(fontsize=12)
+    plt.yticks(fontsize=12)
+    plt.ylim([0, 1.05])
+    plt.legend(fontsize=12)
+    plt.grid(alpha=0.3)
+    plt.tight_layout()
+    plt.show()
+    #plt.savefig("beacons_pdr.pdf")
+    plt.close()
+
+    # ==============================================
+    # Plot 4: Cumulative totals over beacons
+    # ==============================================
+    plt.figure(figsize=(10, 8))
+    for j in range(num_methods):
+        txs_cum = np.cumsum(txs[j])
+        total_rxs_cum = np.cumsum(total_rxs[j])
+        unique_rxs_cum = np.cumsum(unique_rxs[j])
+
+        # TX cumulative
+        plt.plot(beacon_range, txs_cum, c=COLORS1[j],
+                linestyle='solid', linewidth=2.5,
+                marker='o', markersize=7, markerfacecolor=COLORS1[j],
+                alpha=0.9, label=f'Cum TX {labels[j]}')
+
+        # Total RX cumulative
+        plt.plot(beacon_range, total_rxs_cum, c=COLORS1[j],
+                linestyle='--', linewidth=2.0, dashes=(5, 3),
+                marker='s', markersize=7, markerfacecolor='white',
+                markeredgecolor=COLORS1[j], markeredgewidth=2,
+                alpha=0.85, label=f'Cum Total RX {labels[j]}')
+
+        # Unique RX cumulative
+        plt.plot(beacon_range, unique_rxs_cum, c=COLORS1[j],
+                linestyle='-.', linewidth=2.0, dashes=(8, 3, 2, 3),
+                marker='^', markersize=8, markerfacecolor='none',
+                markeredgecolor=COLORS1[j], markeredgewidth=2,
+                alpha=0.8, label=f'Cum Unique RX {labels[j]}')
+
+    plt.xlabel('Beacon number', fontsize=16)
+    plt.ylabel('Cumulative packets', fontsize=16)
+    plt.title('Cumulative TX & RX over Whole Pass', fontsize=18)
+    plt.xticks(fontsize=12)
+    plt.yticks(fontsize=12)
+    plt.legend(fontsize=10, loc='best', ncol=2)
+    plt.grid(alpha=0.3)
+    plt.tight_layout()
+    plt.show()
+    plt.close()
+
+    # ==============================================
+    # Plot 5: Global PDR progression
+    # ==============================================
+    plt.figure(figsize=(10, 8))
+    for j in range(num_methods):
+        txs_cum = np.cumsum(txs[j])
+        unique_rxs_cum = np.cumsum(unique_rxs[j])
+
+        # Running/global PDR up to each beacon
+        pdr_running = np.divide(unique_rxs_cum, txs_cum, where=(txs_cum > 0))
+
+        plt.plot(beacon_range, pdr_running, c=COLORS1[j],
+                linestyle='-', linewidth=2.5,
+                marker='o', markersize=6,
+                label=f'Global PDR {labels[j]}')
+
+    plt.xlabel('Beacon number', fontsize=16)
+    plt.ylabel('Global PDR', fontsize=16)
+    plt.title('Global Packet Delivery Ratio (running across beacons)', fontsize=18)
+    plt.ylim([0, 1.05])
+    plt.xticks(fontsize=12)
+    plt.yticks(fontsize=12)
+    plt.legend(fontsize=10, loc='best')
+    plt.grid(alpha=0.3)
+    plt.tight_layout()
+    plt.show()
     plt.close()

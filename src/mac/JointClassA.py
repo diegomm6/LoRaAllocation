@@ -1,7 +1,7 @@
 from src.base import *
 from src.mac.Scheduler import Scheduler
 
-class AnySFrandom(Scheduler):
+class JointClassA(Scheduler):
 
     def __init__(self, numDevices, slottime, timeslots, numLRchannels, availableSF_data) -> None:
         super().__init__(numDevices, slottime, timeslots, numLRchannels, availableSF_data)
@@ -18,7 +18,7 @@ class AnySFrandom(Scheduler):
 
             # use LoRa SF11 or SF12 with 50/50 probability
             if random.random() < 0.5:
-                m = np.random.choice([4,5])
+                m = np.random.choice([0,1,2,3,4,5])
                 lora_schedules.append((n, m, random_timeslot, random_channel))
 
             # or use LRFHSS CR1/3 or CR2/3 with 50/50 probability

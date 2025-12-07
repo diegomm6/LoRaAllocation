@@ -99,7 +99,7 @@ class LoRaNetwork():
         plt.xticks(fontsize=10)
         plt.title('Doppler shift', fontsize=14)
 
-        if save: plt.savefig(f"dopplershift.pdf")
+        if save: plt.savefig(f"img/dopplershift.pdf")
         else: plt.show()
 
         plt.figure(figsize=(10,8))
@@ -113,7 +113,7 @@ class LoRaNetwork():
         plt.xticks(fontsize=10)
         plt.title('Doppler Rate', fontsize=14)
         
-        if save: plt.savefig(f"dopplerrate.pdf")
+        if save: plt.savefig(f"img/dopplerrate.pdf")
         else: plt.show()
 
     def plot_doppler_shift_discrete(self, save=False):
@@ -311,7 +311,7 @@ class LoRaNetwork():
         node_dist = [node.dist2sat for node in self.nodes]
         sorted_nodes = [node for _, node in sorted(zip(node_dist, self.nodes), key=lambda x: x[0])]
 
-        plt.figure(figsize=(10,10))
+        plt.figure(figsize=(8,8))
         ax = plt.gca()
 
         # For each node, find the LOWEST valid SF
@@ -328,14 +328,15 @@ class LoRaNetwork():
                     break
 
         # Elevation angles and circles
-        Eangles = [20, 40, 60, 80]  # degrees
+        #Eangles = [20, 40, 60, 80]  # degrees
+        Eangles = [elevation_flat(sf) for sf in [2,3,4,5]]
         linestyles = ['-', '--', '-.', ':']
         elevation_handles = []
         for i, E in enumerate(Eangles):
             radius = ground_distance(np.radians(E)) / 1e3  # Convert to km
             circle = plt.Circle((0, 0), radius, fill=False, color='black', linestyle=linestyles[i], linewidth=2.5)
             ax.add_patch(circle)
-            elevation_handles.append(plt.Line2D([0], [0], color='black', linestyle=linestyles[i], label=f'{E}°', linewidth=2.5))
+            elevation_handles.append(plt.Line2D([0], [0], color='black', linestyle=linestyles[i], label=f'{round(E,1)}°', linewidth=2.5))
 
         # Combine SF and elevation legends
         sf_handles, sf_labels = ax.get_legend_handles_labels()
@@ -352,9 +353,68 @@ class LoRaNetwork():
         plt.grid(True, alpha=0.3)
 
         
-        if save: plt.savefig("img/TEST_BW125_lora_sf.pdf")  # Removed {sf} from filename
+        if save: plt.savefig("img/lora_sf_budget.pdf")  # Removed {sf} from filename
         else: plt.show()
 
+
+    def plot_cr_allocation(self, save=False):
+        colors_ = ['#FF0000','#00FF00']
+        
+        node_dist = [node.dist2sat for node in self.nodes]
+        sorted_nodes = [node for _, node in sorted(zip(node_dist, self.nodes), key=lambda x: x[0])]
+
+        plt.figure(figsize=(8,8))
+        ax = plt.gca()
+
+        # For each node, find the LOWEST valid SF
+        sf_legend_added = set()  # Track which SFs have been added to legend
+        for node in sorted_nodes:
+            # Check SFs in ascending order to find the first (lowest) valid one
+            for sf in [0,1]:
+                P_r = received_power(node.dist2sat)
+                elevation = angle_dist2sat(node.dist2sat) * 180/np.pi
+                if elevation < 32.6:
+                    # Only add label for SF if it's the first occurrence
+                    label = f'CR1/3' if sf not in sf_legend_added else ""
+                    sc = ax.scatter(node.x/1e3, node.y/1e3, color=colors_[0], label=label)
+                    if label: sf_legend_added.add(sf)
+                    break
+                else:
+                    # Only add label for SF if it's the first occurrence
+                    label = f'CR2/3' if sf not in sf_legend_added else ""
+                    sc = ax.scatter(node.x/1e3, node.y/1e3, color=colors_[1], label=label)
+                    if label: sf_legend_added.add(sf)
+                    break
+
+        # Elevation angles and circles
+        #Eangles = [20, 40, 60, 80]  # degrees
+        #Eangles = [elevation_flat(sf) for sf in [2,3,4,5]]
+        Eangles = [18, 32.6]
+        linestyles = ['-', '--', '-.', ':']
+        elevation_handles = []
+        for i, E in enumerate(Eangles):
+            radius = ground_distance(np.radians(E)) / 1e3  # Convert to km
+            circle = plt.Circle((0, 0), radius, fill=False, color='black', linestyle=linestyles[i], linewidth=2.5)
+            ax.add_patch(circle)
+            elevation_handles.append(plt.Line2D([0], [0], color='black', linestyle=linestyles[i], label=f'{E}°', linewidth=2.5))
+
+        # Combine SF and elevation legends
+        sf_handles, sf_labels = ax.get_legend_handles_labels()
+        all_handles = sf_handles + elevation_handles
+        all_labels = [h.get_label() for h in all_handles]
+
+        plt.legend(all_handles, all_labels, loc='upper right', fontsize=10, title='SF / Elevation Angle', title_fontsize=11)
+        plt.xlabel('X Position [km]', fontsize=14)
+        plt.ylabel('Y Position [km]', fontsize=14)
+        plt.title('CR allocation', fontsize=14)
+        plt.yticks(fontsize=10)
+        plt.xticks(fontsize=10)
+        ax.set_aspect('equal')
+        plt.grid(True, alpha=0.3)
+
+        
+        if save: plt.savefig("img/lrfhss_cr_allocation.pdf")  # Removed {sf} from filename
+        else: plt.show()
 
 
     def get_shift_time_angle(self, runs=100):

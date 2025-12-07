@@ -10,7 +10,6 @@ import cartopy.feature as cfeature
 from skyfield.api import load, wgs84
 from datetime import datetime, timedelta
 from scipy.special import i0  # Modified Bessel function of first kind
-import hashlib
 
 
 KINEIS_CONSTELLATION = ['KINEIS-1A', 'KINEIS-1B', 'KINEIS-1C', 'KINEIS-1D', 'KINEIS-1E',
@@ -43,7 +42,16 @@ STARLINK_CONSTELLATION2 = [
 COLORS1 = [u'#1f77b4', u'#ff7f0e', u'#2ca02c', u'#d62728', u'#9467bd',
            u'#8c564b', u'#e377c2', u'#7f7f7f', u'#bcbd22', u'#17becf']
 
-COLORS2 = [
+COLORS2 = ['gray', u'#1f77b4', u'#ff7f0e', u'#2ca02c', u'#d62728', u'#9467bd',
+           u'#8c564b', u'#e377c2', u'#7f7f7f', u'#bcbd22', u'#17becf']
+
+COLORS3 = ['gray', u'#1f77b4', u'#2ca02c', u'#d62728', u'#ff7f0e',
+           u'#9467bd', u'#e377c2', u'#7f7f7f', u'#bcbd22', u'#17becf']
+
+COLORS4 = ['gray', 'silver', 'red', 'orange', 'darkolivegreen',
+           'lime', 'lightseagreen', 'blue']
+
+COLORS5 = [
     '#FF0000',    # Red
     '#00FF00',    # Lime
     '#0000FF',    # Blue
@@ -78,10 +86,10 @@ COLORS2 = [
 
 EARTH_G     = 9.80665      # earth gravitational constant in m/s2
 EARTH_R     = 6371000      # earth radius in m
-SAT_H       = 635000       # satellite altitude in m
+SAT_H       = 550000       # satellite altitude in m, 635km for kineis
 LIGHT_C     = 299792458    # speed of light in m/s
 CHANNEL_FC  = 868100000    # channel carrier freq in hz
-#CHANNEL_FC  = 1.9e9        # S band
+#CHANNEL_FC  = 1980000000    # S band
 HDR_TIME    = 0.233472     # LR-FHSS header time in seconds
 FRG_TIME    = 0.1024       # LR-FHSS fragment time in seconds
 BCN_TIME    = 120          # beacon window time in seconds
@@ -100,6 +108,8 @@ MAX_PL_LRFHSS = [58, 123]
 GAIN_TX     = 0      # transmitter antenna gain in db
 GAIN_RX     = 3      # receiver antenna gain in db
 TX_POWER    = 14     # transmitted power in db
+
+LR1120_POW  = 92.4   # lr1120 power consumtpion in mW when transmitting at 14 dBm
 
 SINR_TH = [-6, -9, -12, -15, -17.5, -20] # SINR thresholds for 125 khz BW in dB
 
@@ -148,6 +158,8 @@ def calculate_overlap(p1, toa1, p2, toa2, slottime):
 def datarate(sf, bw, cr=0.8):
     return sf * bw * cr / (2**sf)
 
+def lora_symbol_time(sf):
+    return (2**sf) / LORA_BW
 
 # Coding rate (4/5 = 1, 4/6 = 2, etc.)
 def lora_toa(payload_length, sf, ldro=0, coding_rate=1, preamble_length=8, has_header=True):
@@ -218,9 +230,6 @@ def print_toa():
 # a unit slot is defined as slottime seconds 
 def get_timeslots_perSF(slottime):
 
-    #if method=='double':
-    #    return [2**sf for sf in range(6)]
-
     all_ToA = [lora_toa(PL_BYTES, sf) for sf in [7,8,9,10,11,12]]
 
     sf_slots = [1]
@@ -266,6 +275,7 @@ def max_nodes_for_success(sf, min_success_prob):
 
 
 # Doppler rate success check, LR-FHSS defined as SF13
+# For  SX12xx and SX1301 Receivers (and earlier)
 def doppler_rate_success(dopplerrate, sf):
 
     # LR-FHSS is inmune to doppler
@@ -279,6 +289,21 @@ def doppler_rate_success(dopplerrate, sf):
         freq_variation_limit *= 16
 
     return (abs(toa * dopplerrate) < freq_variation_limit)
+
+
+# Doppler rate success check, LR-FHSS defined as SF13
+# For LR11xx and SX1302 Receivers (and later) with improved doppler compensation
+def doppler_rate_success_new(dopplerrate, sf):
+
+    # LR-FHSS
+    if sf==13 or sf==14:
+        return dopplerrate < 800 # Hz/s
+
+    symbol_time = lora_symbol_time(sf)
+    freq_limit = 1 / (10 * symbol_time)
+
+    return (abs(symbol_time * dopplerrate) < freq_limit)
+
 
 def doppler_shift_success(dopplershift, sf):
     # LR-FHSS is inmune to doppler
@@ -305,7 +330,7 @@ def get_available_sf(dopplershift, dopplerrate, P_r):
     sf_availability = []
     for sf in [7,8,9,10,11,12,13,14]:
         
-        if doppler_rate_success(dopplerrate, sf) and \
+        if doppler_rate_success_new(dopplerrate, sf) and \
             doppler_shift_success(dopplershift, sf) and \
                 linkbudget_success(P_r, sf):
             sf_availability.append(1)
@@ -348,6 +373,23 @@ def max_sf12_range():
 def received_power(distance):
     return TX_POWER + GAIN_TX + GAIN_RX - fspl_dB(distance, CHANNEL_FC)
 
+def elevation_flat(sf):
+    sens = LR_SENSITIVITY[sf]  # dBm
+    fspl_max = TX_POWER + GAIN_TX + GAIN_RX - sens
+    term = fspl_max - 20 * np.log10(CHANNEL_FC) - 20 * np.log10(4 * np.pi / LIGHT_C)
+    distance = 10 ** (term / 20.0)  # meters (slant distance)
+    angle_rad =  angle_dist2sat(distance)  # radians
+    return angle_rad * (180 / np.pi)  # degrees
+
+def get_beta_angle():
+    effective_power = TX_POWER + GAIN_TX + GAIN_RX - LR_SENSITIVITY[5]
+    term = effective_power - 20 * np.log10(CHANNEL_FC) - 20 * np.log10(4 * np.pi / LIGHT_C)
+    distance = 10 ** (term / 20)
+    angle = angle_dist2sat(distance)
+    ground_d = ground_distance(angle)
+
+    beta = np.arctan(np.sqrt(2)*SAT_H / ground_d)
+    return beta * (180 / np.pi)
 
 def getSNR():
 
@@ -490,6 +532,10 @@ def getSNR2():
 # ground to satellite distance as a function of the elevation angle Eangle
 def dist2sat_angle(Eangle):
     return EARTH_R * ( np.sqrt((SAT_R / EARTH_R)**2 - (np.cos(Eangle))**2) - np.sin(Eangle) )
+
+def angle_dist2sat(distance):
+    term = (SAT_H**2 + 2*EARTH_R*SAT_H - distance**2) / (2 * distance * EARTH_R)
+    return np.arcsin(term)
 
 # ground to satellite distance as a function of time
 # at t=0 the satellite is located at the maximum elevation angle maxE
@@ -819,21 +865,20 @@ def plot_lora_linkbudget():
     plt.figure(figsize=(8,5))
     plt.plot(elevation_angles, P_r, color='red')
 
-    plt.axhline(y=-124.5, color='gray', linestyle=':', label=f'SF7 Sensitivity')
-    plt.axhline(y=-127, color='gray', linestyle='-.', label=f'SF8 Sensitivity')
-    plt.axhline(y=-129.5, color='gray', linestyle='--', label=f'SF9 Sensitivity')
-    plt.axhline(y=-132, color='gray', linestyle='-', label=f'SF10 Sensitivity')
-    plt.axhline(y=-134.5, color='gray', linestyle=(0, (3, 1, 1, 1)), label=f'SF11 Sensitivity')
-    plt.axhline(y=-137, color='gray', linestyle=(0, (5, 10)), label='SF12 Sensitivity')
+    plt.axhline(y=-124.5, color='gray', linestyle=':', label=f'SF7')
+    plt.axhline(y=-127, color='gray', linestyle='-.', label=f'SF8')
+    plt.axhline(y=-129.5, color='gray', linestyle='--', label=f'SF9')
+    plt.axhline(y=-132, color='gray', linestyle='-', label=f'SF10')
+    plt.axhline(y=-134.5, color='gray', linestyle=(0, (3, 1, 1, 1)), label=f'SF11')
+    plt.axhline(y=-137, color='gray', linestyle=(0, (5, 10)), label='SF12')
 
-    plt.title('Received Power vs Elevation Angle with FSPL', fontsize=14)
+    plt.title('Received Power vs Elevation Angle and SF sensitivity levels', fontsize=14)
     plt.xlabel('Elevation Angle (degrees)', fontsize=12)
     plt.ylabel('Received Power (dBm)', fontsize=12)
     plt.grid(True)
     plt.legend()
-    #plt.tight_layout()
     #plt.show()
-    plt.savefig("linkbudget.pdf")
+    plt.savefig("img/linkbudget.pdf")
 
 
 # example:
@@ -1718,102 +1763,98 @@ def animate_constellation_groundtrack_generic(constellation, t0, t1, output_file
 ################################################################################
 
 # reception results for single window simulation
-def single_window_plots(numSats, size_list, txs, total_rxs, unique_rxs, labels):
+def single_window_plots(simtime, numSats, size_list, txs, total_rxs, unique_rxs, tx_per_sf, labels, prefix, _colors):
 
     # -----------------------------
     # Plot 1: TX / Total RX / Unique RX per beacon
     # -----------------------------
+
+    load = np.array(size_list) / simtime # packets per second
     num_methods = len(labels)
     plt.figure(figsize=(10, 8))
     
     for j in range(num_methods):
+
+        print(f"{labels[j]} - TXs= {txs[j]}")
+        print(f"{labels[j]} - TXs per SF = {tx_per_sf[j]}")
+        print(f"{labels[j]} - RXs= {unique_rxs[j]}")
+
         # Plot transmitted packets (scheduled) - solid line, circles
-        plt.plot(size_list, txs[j], c=COLORS1[j], 
+        plt.plot(load, txs[j], c=COLORS3[j], 
                 linestyle='solid', linewidth=2.5, 
-                marker='o', markersize=7, markerfacecolor=COLORS1[j],
+                marker='o', markersize=7, markerfacecolor=COLORS3[j],
                 alpha=0.9, label=f'TX {labels[j]}')
         
         # Plot total receptions (with duplicates) - dashed line, squares
-        plt.plot(size_list, total_rxs[j], c=COLORS1[j], 
-                linestyle='--', linewidth=2.0, dashes=(5, 3),
-                marker='s', markersize=7, markerfacecolor='white', 
-                markeredgecolor=COLORS1[j], markeredgewidth=2,
-                alpha=0.85, label=f'Total RX {labels[j]}')
+        #plt.plot(load, total_rxs[j], c=COLORS3[j], 
+        #        linestyle='--', linewidth=2.0, dashes=(5, 3),
+        #        marker='s', markersize=7, markerfacecolor='white', 
+        #        markeredgecolor=COLORS3[j], markeredgewidth=2,
+        #        alpha=0.85, label=f'Total RX {labels[j]}')
         
         # Plot unique receptions - dash-dot line, triangles
-        plt.plot(size_list, unique_rxs[j], c=COLORS1[j], 
+        plt.plot(load, unique_rxs[j], c=COLORS3[j], 
                 linestyle='-.', linewidth=2.0, dashes=(8, 3, 2, 3),
                 marker='^', markersize=8, markerfacecolor='none', 
-                markeredgecolor=COLORS1[j], markeredgewidth=2,
+                markeredgecolor=COLORS3[j], markeredgewidth=2,
                 alpha=0.8, label=f'Unique RX {labels[j]}')
     
     # Plot reference line: generated = transmitted (ideal case)
-    plt.plot(size_list, numSats * size_list, 'k--', linewidth=2, alpha=0.3, 
-            label='Generated (ideal)')
+    #plt.plot(load, numSats * size_list, 'k--', linewidth=2, alpha=0.3, label='Generated (ideal)')
     
-    plt.xlabel('Generated LoRa packets (# devices)', fontsize=16)
-    plt.ylabel('Packet count', fontsize=16)
-    plt.title(f'TX & RX Performance - {numSats} Satellite Constellation', 
-            fontsize=18)
-    plt.legend(fontsize=10, loc='best', ncol=2)
-    plt.xticks(fontsize=12)
-    plt.yticks(fontsize=12)
+    plt.xlabel('Load (packets/s)', fontsize=20)
+    plt.ylabel('Packet count', fontsize=20)
+    plt.title(f'TX & RX Performance - {numSats} Satellites', fontsize=22)
+    # Legend below the plot (centered), wide-friendly with 2 columns
+    plt.legend(loc='upper center', bbox_to_anchor=(0.5, -0.15), ncol=2, fontsize=14)
+    # Make room for the legend below
+    plt.subplots_adjust(bottom=0.25)
+    plt.xticks(fontsize=16)
+    plt.yticks(fontsize=16)
     plt.grid(alpha=0.3)
-    plt.tight_layout()
-    plt.show()
-    #plt.savefig("constellation_window_packets.pdf")
+    plt.ylim([0, size_list[-1]*.51])
+    #plt.show()
+    plt.savefig(f"img/{prefix}singlewindow_packets.pdf")
     plt.close()
 
     # -----------------------------
-    # Plot 2: Packet Delivery ratio
+    # Plot 2: Packet Delivery Ratio
     # -----------------------------
-    num_methods = len(labels)
-    
-    plt.figure(figsize=(10, 6))
-    
+
+    plt.figure(figsize=(10, 8))
+
     for j in range(num_methods):
-        # PDR = unique receptions / generated packets
-        pdr = unique_rxs[j] / size_list
-        plt.plot(size_list, pdr, c=COLORS1[j], marker='o', 
-                linewidth=2, markersize=6, label=f'{labels[j]}')
-    
-    plt.xlabel('Generated LoRa packets (# devices)', fontsize=16)
-    plt.ylabel('Packet Delivery Ratio (PDR)', fontsize=16)
-    plt.title(f'PDR - {numSats} Satellite Constellation', fontsize=18)
-    plt.legend(fontsize=12)
-    plt.xticks(fontsize=12)
-    plt.yticks(fontsize=12)
+
+        pdr_tx = np.divide(unique_rxs[j], txs[j])
+        pdr_gen = np.divide(unique_rxs[j], size_list)
+
+        plt.plot(
+            load, pdr_tx, c=COLORS3[j], marker='o',
+            linewidth=2, markersize=3, label=f'{labels[j]} - Link PDR'
+        )
+        plt.plot(
+            load, pdr_gen, c=COLORS3[j], linestyle='-.',
+            marker='v', linewidth=2, markersize=6, label=f'{labels[j]} - End-to-end PDR'
+        )
+
+    plt.xlabel('Load (packets/s)', fontsize=20)
+    plt.ylabel('PDR', fontsize=20)
+    plt.title(f'Packet Delivery Ratio (PDR) - {numSats} Satellites', fontsize=22)
+    # Legend below the plot (centered), wide-friendly with 2 columns
+    plt.legend(loc='upper center', bbox_to_anchor=(0.5, -0.15), ncol=2, fontsize=14)
+    # Make room for the legend below
+    plt.subplots_adjust(bottom=0.25)
+
+    plt.xticks(fontsize=16)
+    plt.yticks(fontsize=16)
     plt.grid(alpha=0.3)
     plt.ylim([0, 1.05])
-    plt.tight_layout()
-    plt.show()
-    #plt.savefig("constellation_pdr.pdf")
-    plt.close()
-
-
-"""
-TO BE UPDATED FOR NEW CONSTELALTION SCENARIO
-
-def plot_usage_time(m, size_list, usage_time_all, labels):
-
-    num_methods = len(labels)
-    plt.figure(figsize=(8, 8))
-    for j in range(num_methods):
-        plt.plot(size_list, usage_time_all[j,:,m], label=f'SF{m+7} {labels[j]}')
-    plt.xlabel('Number of EDs', fontsize=16)
-    plt.ylabel('Time ratio [%]', fontsize=16)
-    plt.title(f'Channel usage SF{m+7}', fontsize=18)
-    plt.legend(fontsize=12)
-    plt.xticks(fontsize=12)
-    plt.yticks(fontsize=12)
-    plt.legend(fontsize=12)
-    plt.grid()
     #plt.show()
-    plt.savefig(f"window_times_SF{m+7}.pdf")
+    plt.savefig(f"img/{prefix}singlewindow_pdr.pdf")
     plt.close()
-"""
 
-def beacon_results_plots(txs, total_rxs, unique_rxs, labels, num_satellites=1):
+
+def beacon_results_plots(txs, total_rxs, unique_rxs, tx_per_sf, labels, prefix, _colors):
     """
     Plot results for multiple beacons/windows.
     
@@ -1839,35 +1880,34 @@ def beacon_results_plots(txs, total_rxs, unique_rxs, labels, num_satellites=1):
     plt.figure(figsize=(10, 8))
     for j in range(num_methods):
         # Transmitted packets - solid line, filled circles
-        plt.plot(beacon_range, txs[j], c=COLORS1[j], 
+        plt.plot(beacon_range, txs[j], c=_colors[j], 
                 linestyle='solid', linewidth=2.5, 
-                marker='o', markersize=7, markerfacecolor=COLORS1[j],
+                marker='o', markersize=7, markerfacecolor=_colors[j],
                 alpha=0.9, label=f'TX {labels[j]}')
         
         # Total receptions (with duplicates) - dashed line, hollow squares
-        plt.plot(beacon_range, total_rxs[j], c=COLORS1[j], 
+        plt.plot(beacon_range, total_rxs[j], c=_colors[j], 
                 linestyle='--', linewidth=2.0, dashes=(5, 3),
                 marker='s', markersize=7, markerfacecolor='white', 
-                markeredgecolor=COLORS1[j], markeredgewidth=2,
-                alpha=0.85, label=f'Total RX {labels[j]}')
+                markeredgecolor=_colors[j], markeredgewidth=2,
+                alpha=0.85, label=f'T-RX {labels[j]}')
         
         # Unique receptions - dash-dot line, hollow triangles
-        plt.plot(beacon_range, unique_rxs[j], c=COLORS1[j], 
+        plt.plot(beacon_range, unique_rxs[j], c=_colors[j], 
                 linestyle='-.', linewidth=2.0, dashes=(8, 3, 2, 3),
                 marker='^', markersize=8, markerfacecolor='none', 
-                markeredgecolor=COLORS1[j], markeredgewidth=2,
-                alpha=0.8, label=f'Unique RX {labels[j]}')
+                markeredgecolor=_colors[j], markeredgewidth=2,
+                alpha=0.8, label=f'U-RX {labels[j]}')
 
-    plt.xlabel('Beacon number', fontsize=16)
-    plt.ylabel('Packet count', fontsize=16)
-    plt.title(f'TX & RX per Beacon - {num_satellites} Satellite Constellation', fontsize=18)
-    plt.xticks(fontsize=12)
-    plt.yticks(fontsize=12)
-    plt.legend(fontsize=10, loc='best', ncol=2)
+    plt.xlabel('Beacon number', fontsize=20)
+    plt.ylabel('Packet count', fontsize=20)
+    plt.title(f'transmissions (TX) & receptions (RX) per Beacon', fontsize=22)
+    plt.xticks(fontsize=16)
+    plt.yticks(fontsize=16)
+    plt.legend(fontsize=13, loc='best', ncol=2)
     plt.grid(alpha=0.3)
-    plt.tight_layout()
-    plt.show()
-    #plt.savefig("beacon_packets.pdf")
+    #plt.show()
+    plt.savefig(f"img/{prefix}perbeaconRX.pdf")
     plt.close()
 
     # -----------------------------
@@ -1876,20 +1916,19 @@ def beacon_results_plots(txs, total_rxs, unique_rxs, labels, num_satellites=1):
     plt.figure(figsize=(10, 8))
     for j in range(num_methods):
         # Use unique_rxs for throughput (each device payload counted once)
-        plt.plot(beacon_range, 20 * unique_rxs[j], c=COLORS1[j], 
+        plt.plot(beacon_range, 20 * unique_rxs[j], c=_colors[j], 
                 marker='o', markersize=5, linewidth=2,
                 label=f'{labels[j]}')
         
-    plt.xlabel('Beacon number', fontsize=16)
-    plt.ylabel('Received Payload data [bytes]', fontsize=16)
-    plt.title('Throughput (Unique Receptions)', fontsize=18)
-    plt.xticks(fontsize=12)
-    plt.yticks(fontsize=12)
-    plt.legend(fontsize=12)
+    plt.xlabel('Beacon number', fontsize=20)
+    plt.ylabel('Received Payload data [bytes]', fontsize=20)
+    plt.title('Throughput (Unique Receptions)', fontsize=22)
+    plt.xticks(fontsize=16)
+    plt.yticks(fontsize=16)
+    plt.legend(fontsize=14)
     plt.grid(alpha=0.3)
-    plt.tight_layout()
-    plt.show()
-    #plt.savefig("beacon_throughput.pdf")
+    #plt.show()
+    plt.savefig(f"img/{prefix}perbeaconTHROUGHPUT.pdf")
     plt.close()
 
     # -----------------------------
@@ -1898,21 +1937,20 @@ def beacon_results_plots(txs, total_rxs, unique_rxs, labels, num_satellites=1):
     plt.figure(figsize=(10, 8))
     for j in range(num_methods):
         pdr = unique_rxs[j] / txs[j]  # PDR based on unique receptions
-        plt.plot(beacon_range, pdr, c=COLORS1[j], 
+        plt.plot(beacon_range, pdr, c=_colors[j], 
                 marker='o', markersize=5, linewidth=2,
                 label=f'{labels[j]}')
         
-    plt.xlabel('Beacon number', fontsize=16)
-    plt.ylabel('PDR', fontsize=16)
-    plt.title('Packet Delivery Ratio (per Beacon)', fontsize=18)
-    plt.xticks(fontsize=12)
-    plt.yticks(fontsize=12)
+    plt.xlabel('Beacon number', fontsize=20)
+    plt.ylabel('PDR', fontsize=20)
+    plt.title('Packet Delivery Ratio (per Beacon)', fontsize=22)
+    plt.xticks(fontsize=16)
+    plt.yticks(fontsize=16)
     plt.ylim([0, 1.05])
-    plt.legend(fontsize=12)
+    plt.legend(fontsize=14, loc='upper left')
     plt.grid(alpha=0.3)
-    plt.tight_layout()
-    plt.show()
-    #plt.savefig("beacons_pdr.pdf")
+    #plt.show()
+    plt.savefig(f"img/{prefix}perbeaconsPDR.pdf")
     plt.close()
 
     # ==============================================
@@ -1925,34 +1963,34 @@ def beacon_results_plots(txs, total_rxs, unique_rxs, labels, num_satellites=1):
         unique_rxs_cum = np.cumsum(unique_rxs[j])
 
         # TX cumulative
-        plt.plot(beacon_range, txs_cum, c=COLORS1[j],
+        plt.plot(beacon_range, txs_cum, c=_colors[j],
                 linestyle='solid', linewidth=2.5,
-                marker='o', markersize=7, markerfacecolor=COLORS1[j],
-                alpha=0.9, label=f'Cum TX {labels[j]}')
+                marker='o', markersize=7, markerfacecolor=_colors[j],
+                alpha=0.9, label=f'TX {labels[j]}')
 
         # Total RX cumulative
-        plt.plot(beacon_range, total_rxs_cum, c=COLORS1[j],
+        plt.plot(beacon_range, total_rxs_cum, c=_colors[j],
                 linestyle='--', linewidth=2.0, dashes=(5, 3),
                 marker='s', markersize=7, markerfacecolor='white',
-                markeredgecolor=COLORS1[j], markeredgewidth=2,
-                alpha=0.85, label=f'Cum Total RX {labels[j]}')
+                markeredgecolor=_colors[j], markeredgewidth=2,
+                alpha=0.85, label=f'Total RX {labels[j]}')
 
         # Unique RX cumulative
-        plt.plot(beacon_range, unique_rxs_cum, c=COLORS1[j],
+        plt.plot(beacon_range, unique_rxs_cum, c=_colors[j],
                 linestyle='-.', linewidth=2.0, dashes=(8, 3, 2, 3),
                 marker='^', markersize=8, markerfacecolor='none',
-                markeredgecolor=COLORS1[j], markeredgewidth=2,
-                alpha=0.8, label=f'Cum Unique RX {labels[j]}')
+                markeredgecolor=_colors[j], markeredgewidth=2,
+                alpha=0.8, label=f'Unique RX {labels[j]}')
 
-    plt.xlabel('Beacon number', fontsize=16)
-    plt.ylabel('Cumulative packets', fontsize=16)
-    plt.title('Cumulative TX & RX over Whole Pass', fontsize=18)
-    plt.xticks(fontsize=12)
-    plt.yticks(fontsize=12)
-    plt.legend(fontsize=10, loc='best', ncol=2)
+    plt.xlabel('Beacon number', fontsize=20)
+    plt.ylabel('Cumulative packets', fontsize=20)
+    plt.title('Cumulative TX & RX over Satellite Pass', fontsize=22)
+    plt.xticks(fontsize=16)
+    plt.yticks(fontsize=16)
+    plt.legend(fontsize=14, loc='best', ncol=2)
     plt.grid(alpha=0.3)
-    plt.tight_layout()
-    plt.show()
+    #plt.show()
+    plt.savefig(f"img/{prefix}perbeaconcumRX.pdf")
     plt.close()
 
     # ==============================================
@@ -1966,19 +2004,19 @@ def beacon_results_plots(txs, total_rxs, unique_rxs, labels, num_satellites=1):
         # Running/global PDR up to each beacon
         pdr_running = np.divide(unique_rxs_cum, txs_cum, where=(txs_cum > 0))
 
-        plt.plot(beacon_range, pdr_running, c=COLORS1[j],
+        plt.plot(beacon_range, pdr_running, c=_colors[j],
                 linestyle='-', linewidth=2.5,
                 marker='o', markersize=6,
-                label=f'Global PDR {labels[j]}')
+                label=f'PDR {labels[j]}')
 
-    plt.xlabel('Beacon number', fontsize=16)
-    plt.ylabel('Global PDR', fontsize=16)
-    plt.title('Global Packet Delivery Ratio (running across beacons)', fontsize=18)
+    plt.xlabel('Beacon number', fontsize=20)
+    plt.ylabel('Global PDR', fontsize=20)
+    plt.title('Global Packet Delivery Ratio (running across beacons)', fontsize=22)
     plt.ylim([0, 1.05])
-    plt.xticks(fontsize=12)
-    plt.yticks(fontsize=12)
-    plt.legend(fontsize=10, loc='best')
+    plt.xticks(fontsize=16)
+    plt.yticks(fontsize=16)
+    plt.legend(fontsize=14, loc='best')
     plt.grid(alpha=0.3)
-    plt.tight_layout()
-    plt.show()
+    #plt.show()
+    plt.savefig(f"img/{prefix}perbeaconavgPDR.pdf")
     plt.close()

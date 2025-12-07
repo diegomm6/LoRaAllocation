@@ -1,6 +1,7 @@
-from src.base import *
+import random
+import numpy as np
+import matplotlib.pyplot as plt
 from src.network.LoRaNetwork import LoRaNetwork
-
 
 if __name__ == "__main__":
     random.seed(1234)
@@ -9,7 +10,7 @@ if __name__ == "__main__":
     simTime = 5
     numChannels = 10
     CR = 1
-    minEangle = 20 * np.pi /180
+    minEangle = 18 * np.pi /180
     timeGranularity = 5
 
     network = LoRaNetwork(simTime, numNodes, numChannels, CR, minEangle, timeGranularity)
@@ -33,25 +34,15 @@ if __name__ == "__main__":
         #plt.savefig(save)
         plt.close('all')
 
-    for sf in [7,8,9,10,11,12]:
-        break
-        plot_sf_channels(sf)
-
     #network.plot_ground_constraints()
-    #network.plot_doppler_effect()
+    #network.plot_doppler_effect(True)
     #network.plot_visibility_time()
-    #network.plot_sf_linkbudget()
+    #network.plot_sf_linkbudget(True)
+    network.plot_cr_allocation(True)
     
     #network.plot_visibility_time_discrete()
     #network.plot_doppler_shift_discrete()
     #network.plot_doppler_rate_discrete()
-
-    #plot_visibility_vs_position()
-
-    #getSNR2()
-    #getSINR()
-
-    plot_lora_linkbudget()
 
     #network.get_shift_time_angle(50)
 

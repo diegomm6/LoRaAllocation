@@ -20,9 +20,6 @@ class Scheduler():
         self.availableSF_per_node = availableSF_data
         self.bestSF = self.get_bestSF_overall()
 
-        #network.plot_heatmapSF(numDevices, t0, t1, self.slottime, False)
-        #network.plot_availabeSF(t0, t1, self.slottime)
-
         self.delta = self.get_delta()
         self.bestSF_n = self.get_best_SF_per_ed()
 

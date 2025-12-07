@@ -1,7 +1,7 @@
 from src.base import *
 from src.mac.Scheduler import Scheduler
 
-class ValidSFrandom(Scheduler):
+class JointClassAValidSF(Scheduler):
 
     def __init__(self, numDevices, slottime, timeslots, numLRchannels, availableSF_data) -> None:
         super().__init__(numDevices, slottime, timeslots, numLRchannels, availableSF_data)

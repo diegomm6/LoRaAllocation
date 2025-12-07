@@ -33,7 +33,7 @@ point = wgs84.latlon(lat, lon)
 
 #plot_sat_track_constellation(KINEIS_CONSTELLATION, points, t0, t1, delta)
 
-animate_constellation_groundtrack(KINEIS_CONSTELLATION, t0, t1, output_filename='constellation_track4.gif', fps=15, delta=delta)
+#animate_constellation_groundtrack(KINEIS_CONSTELLATION, t0, t1, output_filename='constellation_track4.gif', fps=15, delta=delta)
 
 #animate_constellation_groundtrack_generic(STARLINK_CONSTELLATION2, t0, t1, output_filename='starlink_track3.gif', fps=15, delta=delta)
 
@@ -56,3 +56,13 @@ animate_constellation_groundtrack(KINEIS_CONSTELLATION, t0, t1, output_filename=
 #plot_best_SFcurve(satname, points, t0, t1, COLORS1)
 
 #print(round(max_sf12_range()/1e3))
+
+#print(get_beta_angle())
+
+for sf in [7,8,9,10,11,12]:
+    symbol_time = lora_symbol_time(sf)
+    freq_limit = 1 / (10 * symbol_time)
+    max_rate = 1 / (10 * symbol_time**2)
+    print(f"symbol time SF{sf}: {(symbol_time*1000):.4f} ms")
+    print(f"SF{sf}: Max freq drift: {freq_limit:.2f} Hz")
+    print(f"max doppler rate {max_rate} Hz/s\n")

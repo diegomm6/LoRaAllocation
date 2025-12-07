@@ -5,12 +5,9 @@ from src.mac.Scheduler import Scheduler
 from src.mac.opt1Dmodel import Opt1DModel
 from src.mac.opt2Dmodel import Opt2DModel
 from src.mac.optLRFHSS import OptLRFHSS
-from src.mac.DistributedUP import DistributedUplinkPolicy
-
-from src.mac.AnySFrandom import AnySFrandom
-from src.mac.ValidSFrandom import ValidSFrandom
-from src.mac.BestSFonly import BestSFonly
-from src.mac.SequentialSF import SequentialSF
+from src.mac.JointClassA import JointClassA
+from src.mac.JointClassAValidSF import JointClassAValidSF
+from src.mac.SuccessBased import SuccessBased
 from src.mac.ALOHAmax import ALOHAmax
 
 
@@ -46,30 +43,49 @@ class DtSIoTNetwork():
 
     def load_scheduler_config(self, config):
 
-        labels1 = ["opt1D", "class A", "class A Valid SF", "success best", "success seq", "max tput", "max tput int"]
+        # success based sequental SF method with different Pmin thresholds
+        labels1 = ["Opt1D", "$P_{min}=0.8$", "$P_{min}=0.6$", "$P_{min}=0.4$", "$P_{min}=0.2$"]
         scheduler_configs1 = [
             {'class': Opt1DModel, 'kwargs': {}},
-            {'class': AnySFrandom, 'kwargs': {}},
-            {'class': ValidSFrandom, 'kwargs': {}},
-            {'class': BestSFonly, 'kwargs': {'th': 0.4}},
-            {'class': SequentialSF, 'kwargs': {'th': 0.4}},
-            {'class': ALOHAmax, 'kwargs': {'mode': 0}},
-            {'class': ALOHAmax, 'kwargs': {'mode': 1}}
+            {'class': SuccessBased, 'kwargs': {'th': 0.8}},
+            {'class': SuccessBased, 'kwargs': {'th': 0.6}},
+            {'class': SuccessBased, 'kwargs': {'th': 0.4}},
+            {'class': SuccessBased, 'kwargs': {'th': 0.2}}
         ]
-
-        labels2 = ["opt1D", "th=0.8", "th=0.6", "th=0.4", "th=0.2"]
+    
+        # different scheduling methods comparison for a single LoRa channel
+        labels2 = ["Opt1D", "Joint-Class A", "Joint-Class A Valid-SF", "Success Best-SF",
+                   "Success Seq-SF", "ALOHA Best-SF", "ALOHA Seq-SF"]
         scheduler_configs2 = [
             {'class': Opt1DModel, 'kwargs': {}},
-            {'class': SequentialSF, 'kwargs': {'th': 0.8}},
-            {'class': SequentialSF, 'kwargs': {'th': 0.6}},
-            {'class': SequentialSF, 'kwargs': {'th': 0.4}},
-            {'class': SequentialSF, 'kwargs': {'th': 0.2}}
+            {'class': JointClassA, 'kwargs': {}},
+            {'class': JointClassAValidSF, 'kwargs': {}},
+            {'class': SuccessBased, 'kwargs': {'th': 0.6, 'SFmode': 0}},
+            {'class': SuccessBased, 'kwargs': {'th': 0.6, 'SFmode': 1}},
+            {'class': ALOHAmax, 'kwargs': {'SFmode': 0}},
+            {'class': ALOHAmax, 'kwargs': {'SFmode': 1}}
+        ]
+
+        # different scheduling methods comparison for multiple LoRa channel
+        labels3 = ["Opt1D", "Opt2D","Joint-Class A", "Joint-Class A Valid-SF", "Success Best-SF",
+                   "Success Seq-SF", "ALOHA Best-SF", "ALOHA Seq-SF"]
+        scheduler_configs3 = [
+            {'class': Opt1DModel, 'kwargs': {}},
+            {'class': Opt2DModel, 'kwargs': {}},
+            {'class': JointClassA, 'kwargs': {}},
+            {'class': JointClassAValidSF, 'kwargs': {}},
+            {'class': SuccessBased, 'kwargs': {'th': 0.6, 'SFmode': 0}},
+            {'class': SuccessBased, 'kwargs': {'th': 0.6, 'SFmode': 1}},
+            {'class': ALOHAmax, 'kwargs': {'SFmode': 0}},
+            {'class': ALOHAmax, 'kwargs': {'SFmode': 1}}
         ]
 
         if config==1:
-            return scheduler_configs1, labels1
+            return scheduler_configs1, labels1, 'success_', COLORS2
         elif config==2:
-            return scheduler_configs2, labels2
+            return scheduler_configs2, labels2, 'singlechannel_', COLORS3
+        elif config==3:
+            return scheduler_configs3, labels3, 'multichannel_', COLORS4
         
 
     # for a given schedule calculate the distance at transmission
@@ -144,7 +160,7 @@ class DtSIoTNetwork():
         total_scheduled_txs = 0
         total_unique_rxs = 0
         total_successful_rxs = 0
-        usage_time_all = np.zeros(self.M)
+        total_tx_per_sf = np.zeros(self.M)
         
         # Run multiple scheduling iterations
         for r in range(runs):
@@ -161,26 +177,34 @@ class DtSIoTNetwork():
             unique_rxs, total_rxs = self.process_rxs()
             total_unique_rxs += unique_rxs
             total_successful_rxs += total_rxs
-            
-            # Calculate channel usage (same schedule for all satellites)
-            _, total_usage = scheduler.get_total_time_perSF(schedules)
-            
             total_scheduled_txs += len(schedules)
-            usage_time_all += total_usage / (self.numLRchannels * windowslots)
+
+            # TX per sf m
+            if schedules:
+                schedules = np.array(schedules)
+                m_values = schedules[:, 1].astype(int)
+                tx_per_sf = np.bincount(m_values, minlength=self.M)
+                total_tx_per_sf += tx_per_sf
 
             self.reset_gatways()
         
         # Clean up scheduler
         del scheduler
 
-        return total_scheduled_txs / runs, total_successful_rxs / runs, total_unique_rxs / runs
+        # Compute averages
+        avg_scheduled_txs = total_scheduled_txs / runs
+        avg_successful_rxs = total_successful_rxs / runs
+        avg_unique_rxs = total_unique_rxs / runs
+        avg_tx_per_sf = total_tx_per_sf / runs
+
+        return avg_scheduled_txs, avg_successful_rxs, avg_unique_rxs, avg_tx_per_sf
 
 
 
     # get resulst for a list of network sizes comparing differents schedulers
     def schedule_single_window(self, network_sizes, runs, config, range_based_order=False):
 
-        scheduler_configs, labels = self.load_scheduler_config(config)
+        scheduler_configs, labels, prefix, _colors = self.load_scheduler_config(config)
         num_methods = len(scheduler_configs)
         num_runs = [1] + [runs] * (num_methods - 1)  # Only Opt1DModel runs once
 
@@ -188,8 +212,7 @@ class DtSIoTNetwork():
         scheduled_txs = np.zeros((num_methods, samples))
         successful_rxs = np.zeros((num_methods, samples))
         unique_rxs = np.zeros((num_methods, samples))
-        support_time_all = np.zeros((num_methods, samples, self.M))
-        usage_time_all = np.zeros((num_methods, samples, self.M))
+        tx_per_sf = np.zeros((num_methods, samples, self.M))
 
         availableSF_data = self.get_constellation_availableSF()
         availableSF_data = availableSF_data[:, :-1, :]  # remove last timeslot
@@ -199,26 +222,36 @@ class DtSIoTNetwork():
             sorted_indices = np.argsort(distances_at_beginning)
             availableSF_data = availableSF_data[sorted_indices]
 
+        config_times = [0.0] * num_methods
+
         for i, numEDs in enumerate(network_sizes):
             print(f"running for {numEDs} EDs")
 
             for j in range(num_methods):
+                t0 = time.perf_counter()
                 config = scheduler_configs[j]
                 args = (config['class'], numEDs, self.timeslots, availableSF_data[:numEDs], num_runs[j])
 
-                scheduled_txs[j,i], successful_rxs[j,i], unique_rxs[j,i] = \
+                scheduled_txs[j,i], successful_rxs[j,i], unique_rxs[j,i], tx_per_sf[j,i] = \
                     self.run_scheduler(*args, scheduler_kwargs=config['kwargs'])
+                
+                t1 = time.perf_counter()
+                config_times[j] += (t1 - t0)
 
+        for j, total_t in enumerate(config_times):
+            cfg_name = scheduler_configs[j].get('name', scheduler_configs[j]['class'].__name__)
+            print(f"Total time for config {cfg_name} (index {j}): {total_t:.3f} s")
 
-        single_window_plots(self.numSatellites, network_sizes, scheduled_txs, successful_rxs, unique_rxs, labels)
-        #self.plot_usage_time(5, network_sizes, usage_time_all, labels)
+        simtime = self.timeslots * self.slottime
+        single_window_plots(simtime, self.numSatellites, network_sizes, scheduled_txs, successful_rxs, \
+                            unique_rxs, tx_per_sf, labels, prefix, _colors)
         
 
     # get resulst for a number of EDs comparing differents schedulers
     # and solve for each uplink window separately
     def schedule_multiple_window(self, numEDs, uplink_period, runs, config, range_based_order=False):
 
-        scheduler_configs, labels = self.load_scheduler_config(config)
+        scheduler_configs, labels, prefix, _colors = self.load_scheduler_config(config)
         beacon_time = int(uplink_period / self.slottime)
         beacon_start = 0
         beacon_end = beacon_time
@@ -230,8 +263,7 @@ class DtSIoTNetwork():
         scheduled_txs = np.zeros((num_methods, numBeacons))
         total_rxs = np.zeros((num_methods, numBeacons))
         unique_rxs = np.zeros((num_methods, numBeacons))
-        support_time_all = np.zeros((num_methods, self.M))
-        usage_time_all = np.zeros((num_methods, numBeacons, self.M))
+        tx_per_sf = np.zeros((num_methods, numBeacons, self.M))
 
         availableSF_data = self.get_constellation_availableSF()
         availableSF_data = availableSF_data[:, :-1, :]  # remove last timeslot
@@ -241,24 +273,33 @@ class DtSIoTNetwork():
             sorted_indices = np.argsort(distances_at_beginning)
             availableSF_data = availableSF_data[sorted_indices]
 
+        config_times = [0.0] * num_methods
+
         for b in range(numBeacons):
             print(f"running for beacon {b}")
             sub_availableSF_data = availableSF_data[:, beacon_start : beacon_end, :]
 
             for j in range(num_methods):
+                t0 = time.perf_counter()
                 config = scheduler_configs[j]
                 args = (config['class'], numEDs, beacon_time, sub_availableSF_data[:numEDs],\
                         num_runs[j], beacon_start)
 
                 # Returns: scheduled_txs, total_rxs, unique_rxs
-                scheduled_txs[j, b], total_rxs[j, b], unique_rxs[j, b] = \
+                scheduled_txs[j, b], total_rxs[j, b], unique_rxs[j, b], tx_per_sf[j, b] = \
                     self.run_scheduler(*args, scheduler_kwargs=config['kwargs'])
+                
+                t1 = time.perf_counter()
+                config_times[j] += (t1 - t0)
 
             beacon_start = beacon_end
             beacon_end = beacon_start + beacon_time
-
         
-        beacon_results_plots(scheduled_txs, total_rxs, unique_rxs, labels, self.numSatellites)
+        for j, total_t in enumerate(config_times):
+            cfg_name = scheduler_configs[j].get('name', scheduler_configs[j]['class'].__name__)
+            print(f"Total time for config {cfg_name} (index {j}): {total_t:.3f} s")
+
+        beacon_results_plots(scheduled_txs, total_rxs, unique_rxs, tx_per_sf, labels, prefix, _colors)
 
 
     #########################################################################################
@@ -277,6 +318,7 @@ class DtSIoTNetwork():
                 gateway.generate_data(self.start_time, self.end_time)
 
                 for ed in self.enddevices:
+                    if ed.nodeId % 50 == 0: print(f"done for ED {ed.nodeId} on {satname}")
                     ed.generate_data(satname, self.start_time, self.end_time, self.slottime)
             
             if save_cache:
@@ -370,7 +412,7 @@ class DtSIoTNetwork():
         For each device and timeslot, shows the optimal SF from ANY satellite.
         """
         cmap = plt.cm.rainbow
-        bounds = np.array([0, 9, 10, 11, 12, 13, 14])
+        bounds = np.array([0, 8, 9, 10, 11, 12, 13, 14])
         norm = colors.BoundaryNorm(bounds, cmap.N)
         
         numDevices = eds_sample if random_sample else self.numDevices
@@ -393,7 +435,7 @@ class DtSIoTNetwork():
         cbar = plt.colorbar(ticks=tick_positions)
         cbar.set_label('Best DR (Constellation)', fontsize=12)
         cbar.ax.tick_params(labelsize=12)
-        cbar.ax.set_yticklabels(['No Coverage', 'SF9', 'SF10', 'SF11', 'SF12', 'LRFHSS'])
+        cbar.ax.set_yticklabels(['No Coverage', 'SF8', 'SF9', 'SF10', 'SF11', 'SF12', 'LRFHSS'])
         
         plt.xlabel('Time [seconds]', fontsize=14)
         plt.ylabel('Device ID', fontsize=14)
@@ -433,10 +475,10 @@ class DtSIoTNetwork():
         plot_data[plot_data == 0] = np.nan
 
 
-        plt.figure(figsize=(12, 8))
+        plt.figure(figsize=(10, 6))
 
-        # Color mapping: SF9=darkblue, SF10=blue, SF11=cyan, SF12=yellowgreen, LRFHSS=red
-        colors_list = ['darkblue', 'blue', 'cyan', 'yellowgreen', 'red']
+        # Color mapping: SF9=magenta, SF10=blue, SF11=cyan, SF12=yellowgreen, LRFHSS=red
+        colors_list = ['magenta', 'blue', 'cyan', 'yellowgreen', 'red']
         cmap = colors.ListedColormap(colors_list)
 
         # Bounds for SF9 (9), SF10 (10), SF11 (11), SF12 (12), LRFHSS (13/14)
@@ -448,9 +490,9 @@ class DtSIoTNetwork():
                     cmap=cmap, norm=norm, aspect='auto')
 
         cbar = plt.colorbar(im, ticks=[9, 10, 11, 12, 13.5])
-        cbar.set_label('Best DR (Constellation)', fontsize=12)
-        cbar.ax.tick_params(labelsize=12)
-        cbar.ax.set_yticklabels(['SF9', 'SF10', 'SF11', 'SF12', 'LRFHSS'])
+        cbar.set_label('Modulation Configuration', fontsize=18)
+        cbar.ax.tick_params(labelsize=14)
+        cbar.ax.set_yticklabels(['SF9', 'SF10', 'SF11', 'SF12', 'LR-FHSS'])
 
         # Add vertical lines for uplink phases
         num_beacons = int(laptime / uplink_period)
@@ -458,23 +500,25 @@ class DtSIoTNetwork():
             plt.axvline(x=i * uplink_period, color='black', linestyle='--', 
                     linewidth=1.5, alpha=0.7)
         
-        plt.xlabel('Time [seconds]', fontsize=14)
-        plt.ylabel('Device ID', fontsize=14)
-        plt.title(f'Visibility Windows with Uplink Periods - '
-                f'{self.numSatellites} Satellite Constellation', fontsize=16)
+        plt.xlabel('Time [seconds]', fontsize=18)
+        plt.ylabel('Device ID', fontsize=18)
+        plt.xticks(fontsize=16)
+        plt.yticks(fontsize=16)
+        plt.title(f'Visibility Windows with lowest SF - '
+                f'{self.numSatellites} Satellites', fontsize=20)
         
         # White background
         ax = plt.gca()
         ax.set_facecolor('white')
         
         # Add annotation showing uplink period
-        plt.text(0.02, 0.98, f'Uplink period: {uplink_period}s\nBeacons: {num_beacons}',
-                transform=ax.transAxes, fontsize=10,
-                verticalalignment='top',
-                bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+        if 0:
+            plt.text(0.02, 0.98, f'Uplink period: {uplink_period}s\nBeacons: {num_beacons}',
+                    transform=ax.transAxes, fontsize=10,
+                    verticalalignment='top',
+                    bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
         
-        plt.tight_layout()
-        #plt.savefig(f"constellation_beacons_{len(self.satnames)}sats.pdf")
+        plt.savefig(f"img/constellation_beacons_{len(self.constellation)}sats.pdf")
         plt.show()
         plt.close()
 
@@ -592,10 +636,10 @@ class DtSIoTNetwork():
 
         # Create animation
         anim = FuncAnimation(fig, update, frames=num_samples, interval=100)
-        writer = PillowWriter(fps=20, metadata=dict(artist='Constellation Tracker'))
+        writer = PillowWriter(fps=30, metadata=dict(artist='Constellation Tracker'))
 
         # Save animation
-        output_file = f'constellation_bestSF_{self.numSatellites}sats2.gif'
+        output_file = f'constellation_bestSF_{self.numSatellites}sats.gif'
         anim.save(output_file, writer=writer)
         print(f"✓ Animation saved as {output_file}")
 

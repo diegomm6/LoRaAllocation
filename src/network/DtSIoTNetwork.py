@@ -222,7 +222,7 @@ class DtSIoTNetwork():
             sorted_indices = np.argsort(distances_at_beginning)
             availableSF_data = availableSF_data[sorted_indices]
 
-        config_times = [0.0] * num_methods
+        config_times = np.zeros((num_methods, samples))
 
         for i, numEDs in enumerate(network_sizes):
             print(f"running for {numEDs} EDs")
@@ -236,11 +236,15 @@ class DtSIoTNetwork():
                     self.run_scheduler(*args, scheduler_kwargs=config['kwargs'])
                 
                 t1 = time.perf_counter()
-                config_times[j] += (t1 - t0)
+                config_times[j,i] += (t1 - t0)
+                
+                if j==1: print(f"Total time for config {labels[j]} with {network_sizes[i]} EDs: {config_times[j,i]:.3f} s")
 
-        for j, total_t in enumerate(config_times):
-            cfg_name = scheduler_configs[j].get('name', scheduler_configs[j]['class'].__name__)
-            print(f"Total time for config {cfg_name} (index {j}): {total_t:.3f} s")
+
+        for j in [0]:
+            for i in range(samples):
+                print(f"Total time for config {labels[j]} with {network_sizes[i]} EDs: {config_times[j,i]:.3f} s")
+
 
         simtime = self.timeslots * self.slottime
         single_window_plots(simtime, self.numSatellites, network_sizes, scheduled_txs, successful_rxs, \
@@ -498,7 +502,10 @@ class DtSIoTNetwork():
         num_beacons = int(laptime / uplink_period)
         for i in range(1, num_beacons):
             plt.axvline(x=i * uplink_period, color='black', linestyle='--', 
-                    linewidth=1.5, alpha=0.7)
+                    linewidth=1.5, alpha=0.6)
+            
+        beacon9_time = 8 * uplink_period
+        plt.axvline(x=beacon9_time, color='black', linestyle='-', linewidth=2.5, alpha=0.9, zorder=10)
         
         plt.xlabel('Time [seconds]', fontsize=18)
         plt.ylabel('Device ID', fontsize=18)
@@ -510,13 +517,6 @@ class DtSIoTNetwork():
         # White background
         ax = plt.gca()
         ax.set_facecolor('white')
-        
-        # Add annotation showing uplink period
-        if 0:
-            plt.text(0.02, 0.98, f'Uplink period: {uplink_period}s\nBeacons: {num_beacons}',
-                    transform=ax.transAxes, fontsize=10,
-                    verticalalignment='top',
-                    bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
         
         plt.savefig(f"img/constellation_beacons_{len(self.constellation)}sats.pdf")
         plt.show()

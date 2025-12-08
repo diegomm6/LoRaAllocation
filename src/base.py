@@ -48,8 +48,8 @@ COLORS2 = ['gray', u'#1f77b4', u'#ff7f0e', u'#2ca02c', u'#d62728', u'#9467bd',
 COLORS3 = ['gray', u'#1f77b4', u'#2ca02c', u'#d62728', u'#ff7f0e',
            u'#9467bd', u'#e377c2', u'#7f7f7f', u'#bcbd22', u'#17becf']
 
-COLORS4 = ['gray', 'silver', 'red', 'orange', 'darkolivegreen',
-           'lime', 'lightseagreen', 'blue']
+COLORS4 = ['dimgray', 'silver', u'#1f77b4', u'#2ca02c', u'#d62728', u'#ff7f0e',
+           u'#9467bd', u'#e377c2', u'#7f7f7f', u'#bcbd22', u'#17becf']
 
 COLORS5 = [
     '#FF0000',    # Red
@@ -348,6 +348,37 @@ def get_best_sf(availableSF):
             return sf + 7
         
     return 0
+
+def calculate_energy_per_method(tx_per_sf, lrfhss_tx):
+    """
+    Calculate total energy spent per method (LoRa + LR-FHSS)
+    
+    Args:
+        tx_per_sf: np.array (num_methods, num_points, 6) - transmissions per SF7-SF12
+        lrfhss_tx: np.array (num_points,) - transmissions per LR-FHSS
+    
+    Returns:
+        energy_per_method: np.array (num_methods, num_points) - total energy in mJ
+    """
+    num_methods, samples, num_sf = tx_per_sf.shape
+    energy_per_method = np.zeros((num_methods, samples))
+    
+    for j in range(num_methods):
+        for n in range(samples):
+
+            total_energy = 0.0
+            for sf_idx, sf in enumerate(range(7, 13)):
+
+                toa_lora = lora_toa(PL_BYTES, sf)
+                energy_lora = tx_per_sf[j, n, sf_idx] * toa_lora * LR1120_POW
+                total_energy += energy_lora
+            
+            energy_lrfhss = (lrfhss_toa(PL_BYTES, 1) + lrfhss_toa(PL_BYTES, 2)) * lrfhss_tx[n] * LR1120_POW / 2
+            
+            total_energy += energy_lrfhss
+            energy_per_method[j, n] = total_energy
+    
+    return energy_per_method
 
 
 ###############################################################################
@@ -1762,41 +1793,68 @@ def animate_constellation_groundtrack_generic(constellation, t0, t1, output_file
 ########################### PLOTTING NETWORK RESULTS ###########################
 ################################################################################
 
+# simulated LR-FHSS receptions from FHS simulator
+# SPECIFICALLY FOR 15 SECONDS TOTAL TIME
+
+lrfhss_TX = np.array([
+    5.0, 39.0, 73.0, 107.0, 142.0, 176.0, 210.0, 245.0, 279.0, 313.0,
+    348.0, 382.0, 416.0, 451.0, 485.0, 519.0, 553.0, 588.0, 622.0, 656.0,
+    691.0, 725.0, 759.0, 794.0, 828.0, 862.0, 897.0, 931.0, 965.0, 1000.0
+], dtype=float)
+
+lrfhss_RX = np.array([
+4.975,  38.7  ,  70.975, 101.525, 128.7  , 153.225, 172.075, 188.8  , 201.875, 214.325,
+220.575, 222.725, 225.825, 227.625, 225.35 , 215.25 , 213.425, 206.025, 197.85 , 188.5  ,
+178.15 , 166.325, 156.1  , 148.075, 138.75 , 127.35 , 119.425, 108.325, 101.9  ,  92.325
+], dtype=float)
+
+#lrfhss_TX = np.array([5.0, 73.0, 142.0, 210.0, 279.0, 348.0, 416.0, 485.0, 553.0, 622.0])
+#lrfhss_RX = np.array([4.975, 70.975, 128.700, 172.075, 201.875, 220.575, 225.825, 225.350, 213.425, 197.850])
+
+
+# LRFHSS RX interpolation function
+def estimate_fhss_RX(sent_lrfhss):
+    estimated_rx = np.interp(sent_lrfhss, lrfhss_TX, lrfhss_RX)
+    return np.minimum(estimated_rx, sent_lrfhss)
+
+
 # reception results for single window simulation
-def single_window_plots(simtime, numSats, size_list, txs, total_rxs, unique_rxs, tx_per_sf, labels, prefix, _colors):
+def single_window_plots(simtime, numSats, network_sizes, txs, total_rxs, \
+                        unique_rxs, tx_per_sf, labels, prefix, _colors):
+
+    load = np.array(network_sizes) / simtime # packets per second
+    num_methods = len(labels)
+    samples = len(network_sizes)
 
     # -----------------------------
     # Plot 1: TX / Total RX / Unique RX per beacon
     # -----------------------------
 
-    load = np.array(size_list) / simtime # packets per second
-    num_methods = len(labels)
     plt.figure(figsize=(10, 8))
-    
     for j in range(num_methods):
 
-        print(f"{labels[j]} - TXs= {txs[j]}")
-        print(f"{labels[j]} - TXs per SF = {tx_per_sf[j]}")
-        print(f"{labels[j]} - RXs= {unique_rxs[j]}")
+        #print(f"{labels[j]} - TXs= {txs[j]}")
+        #print(f"{labels[j]} - TXs per SF = {tx_per_sf[j]}")
+        #print(f"{labels[j]} - RXs= {unique_rxs[j]}")
 
         # Plot transmitted packets (scheduled) - solid line, circles
-        plt.plot(load, txs[j], c=COLORS3[j], 
+        plt.plot(load, txs[j], c=_colors[j], 
                 linestyle='solid', linewidth=2.5, 
-                marker='o', markersize=7, markerfacecolor=COLORS3[j],
+                marker='o', markersize=7, markerfacecolor=_colors[j],
                 alpha=0.9, label=f'TX {labels[j]}')
         
         # Plot total receptions (with duplicates) - dashed line, squares
-        #plt.plot(load, total_rxs[j], c=COLORS3[j], 
+        #plt.plot(load, total_rxs[j], c=_colors[j], 
         #        linestyle='--', linewidth=2.0, dashes=(5, 3),
         #        marker='s', markersize=7, markerfacecolor='white', 
-        #        markeredgecolor=COLORS3[j], markeredgewidth=2,
+        #        markeredgecolor=_colors[j], markeredgewidth=2,
         #        alpha=0.85, label=f'Total RX {labels[j]}')
         
         # Plot unique receptions - dash-dot line, triangles
-        plt.plot(load, unique_rxs[j], c=COLORS3[j], 
+        plt.plot(load, unique_rxs[j], c=_colors[j], 
                 linestyle='-.', linewidth=2.0, dashes=(8, 3, 2, 3),
                 marker='^', markersize=8, markerfacecolor='none', 
-                markeredgecolor=COLORS3[j], markeredgewidth=2,
+                markeredgecolor=_colors[j], markeredgewidth=2,
                 alpha=0.8, label=f'Unique RX {labels[j]}')
     
     # Plot reference line: generated = transmitted (ideal case)
@@ -1812,7 +1870,7 @@ def single_window_plots(simtime, numSats, size_list, txs, total_rxs, unique_rxs,
     plt.xticks(fontsize=16)
     plt.yticks(fontsize=16)
     plt.grid(alpha=0.3)
-    plt.ylim([0, size_list[-1]*.51])
+    plt.ylim([0, network_sizes[-1]*.51])
     #plt.show()
     plt.savefig(f"img/{prefix}singlewindow_packets.pdf")
     plt.close()
@@ -1822,18 +1880,17 @@ def single_window_plots(simtime, numSats, size_list, txs, total_rxs, unique_rxs,
     # -----------------------------
 
     plt.figure(figsize=(10, 8))
-
     for j in range(num_methods):
 
         pdr_tx = np.divide(unique_rxs[j], txs[j])
-        pdr_gen = np.divide(unique_rxs[j], size_list)
+        pdr_gen = np.divide(unique_rxs[j], network_sizes)
 
         plt.plot(
-            load, pdr_tx, c=COLORS3[j], marker='o',
+            load, pdr_tx, c=_colors[j], marker='o',
             linewidth=2, markersize=3, label=f'{labels[j]} - Link PDR'
         )
         plt.plot(
-            load, pdr_gen, c=COLORS3[j], linestyle='-.',
+            load, pdr_gen, c=_colors[j], linestyle='-.',
             marker='v', linewidth=2, markersize=6, label=f'{labels[j]} - End-to-end PDR'
         )
 
@@ -1852,6 +1909,124 @@ def single_window_plots(simtime, numSats, size_list, txs, total_rxs, unique_rxs,
     #plt.show()
     plt.savefig(f"img/{prefix}singlewindow_pdr.pdf")
     plt.close()
+
+    # --------------------------------------
+    # Joint Allocation with LR-FHSS estimate
+    # --------------------------------------
+
+    pure_lrfhss_pdr = lrfhss_RX / lrfhss_TX
+    joint_total_rx = np.zeros((num_methods, samples))
+    pdr = np.zeros((num_methods, samples))
+
+    for j in range(num_methods):
+        lrfhss_tx = np.subtract(network_sizes, txs[j])
+        lrfhss_rx = estimate_fhss_RX(lrfhss_tx)
+
+        joint_total_rx[j] = unique_rxs[j] + lrfhss_rx
+        pdr[j] = joint_total_rx[j] / network_sizes
+
+    # ---------------------------
+    # Plot 3: Absolute Throughput
+    # ---------------------------
+    plt.figure(figsize=(10, 8))
+    plt.plot(load, lrfhss_RX, 'k-o', label='pure LR-FHSS Throughput')
+    for j in range(num_methods):
+        plt.plot(load, joint_total_rx[j], marker='o', color=_colors[j], label=f'{labels[j]}')
+
+    plt.title("Absolute Throughput vs Traffic Load", fontsize=22)
+    plt.xlabel("Load (packets/s)", fontsize=20)
+    plt.ylabel("Absolute Throughput (Received Packets)", fontsize=20)
+    plt.xticks(fontsize=16)
+    plt.yticks(fontsize=16)
+    plt.legend(fontsize=15)
+    plt.grid(True)
+    # plt.show()
+    plt.savefig(f'img/{prefix}absolute_throughput.pdf')
+    plt.close()
+
+    # ---------------------------
+    # Plot 4: Absolute PDR
+    # ---------------------------
+    plt.figure(figsize=(10, 8))
+    plt.plot(load, pure_lrfhss_pdr, 'k-o', label='Pure LR-FHSS')
+    for j in range(num_methods):
+        plt.plot(load, pdr[j], marker='o', color=_colors[j], label=f'{labels[j]}')
+
+    plt.title("Absolute Packet Delivery Ratio PDR vs Traffic Load", fontsize=22)
+    plt.xlabel("Load (packets/s)", fontsize=20)
+    plt.ylabel("PDR", fontsize=20)
+    plt.xticks(fontsize=16)
+    plt.yticks(fontsize=16)
+    plt.legend(fontsize=14)
+    plt.grid(True)
+    # plt.show()
+    plt.savefig(f'img/{prefix}absolute_pdr.pdf')
+    plt.close()
+
+    # ---------------------------
+    # Plot 5: Relative Throughput to LR-FHSS
+    # ---------------------------
+    plt.figure(figsize=(10, 8))
+    for j in range(num_methods):
+        relative_throughput = joint_total_rx[j] / lrfhss_RX
+        plt.plot(load, relative_throughput, marker='o', color=_colors[j], label=f'{labels[j]}')
+    plt.axhline(1.0, color='k', linestyle='--', label='Pure LR-FHSS Ref.')
+
+    plt.title("Relative Throughput vs Traffic Load", fontsize=22)
+    plt.xlabel("Load (packets/s)", fontsize=20)
+    plt.ylabel("Relative Throughput", fontsize=20)
+    plt.xticks(fontsize=16)
+    plt.yticks(fontsize=16)
+    plt.legend(fontsize=14)
+    plt.grid(True)
+    # plt.show()
+    plt.savefig(f'img/{prefix}relativeFHSS_throughput.pdf')
+    plt.close()
+
+    # ---------------------------
+    # Plot 6: Relative PDR to LR-FHSS
+    # ---------------------------
+    plt.figure(figsize=(10, 8))
+    for j in range(num_methods):
+        relative_pdr = pdr[j] / pure_lrfhss_pdr
+        plt.plot(load, relative_pdr, marker='o', color=_colors[j], label=f'{labels[j]}')
+    plt.axhline(1.0, color='k', linestyle='--', label='Pure LR-FHSS Ref.')
+
+    plt.title("Relative Packet Delivery Ratio vs Traffic Load", fontsize=22)
+    plt.xlabel("Load (packets/s)", fontsize=20)
+    plt.ylabel("Relative PDR", fontsize=20)
+    plt.xticks(fontsize=16)
+    plt.yticks(fontsize=16)
+    plt.legend(fontsize=14)
+    plt.grid(True)
+    # plt.show()
+    plt.savefig(f'img/{prefix}relativeFHSS_pdr.pdf')
+    plt.close()
+
+
+    # ---------------------------
+    # Plot 7: Energy Consuption
+    # ---------------------------
+    energy = calculate_energy_per_method(tx_per_sf, lrfhss_tx)
+    energy_lrfhss = (lrfhss_toa(PL_BYTES, 1) + lrfhss_toa(PL_BYTES, 2)) * lrfhss_TX * LR1120_POW / 2
+
+    plt.figure(figsize=(10, 8))
+    for j in range(num_methods):
+        relative_energy = energy[j] / energy_lrfhss
+        plt.plot(load, relative_energy, marker='o', color=_colors[j], label=f'{labels[j]}')
+    plt.axhline(1.0, color='k', linestyle='--', label='Pure LR-FHSS Ref.')
+    
+    plt.title(f'Relative Total Energy Consumption vs Traffic Load', fontsize=22)
+    plt.xlabel('Load (packets/s)', fontsize=22)
+    plt.ylabel('Relative Energy Consumed', fontsize=20)
+    plt.xticks(fontsize=16)
+    plt.yticks(fontsize=16)
+    plt.legend(fontsize=14)
+    plt.grid(True)
+    # plt.show()
+    plt.savefig(f'img/{prefix}energy_consumption.pdf')
+    plt.close()
+
 
 
 def beacon_results_plots(txs, total_rxs, unique_rxs, tx_per_sf, labels, prefix, _colors):
@@ -1973,14 +2148,14 @@ def beacon_results_plots(txs, total_rxs, unique_rxs, tx_per_sf, labels, prefix, 
                 linestyle='--', linewidth=2.0, dashes=(5, 3),
                 marker='s', markersize=7, markerfacecolor='white',
                 markeredgecolor=_colors[j], markeredgewidth=2,
-                alpha=0.85, label=f'Total RX {labels[j]}')
+                alpha=0.85, label=f'Ttl. RX {labels[j]}')
 
         # Unique RX cumulative
         plt.plot(beacon_range, unique_rxs_cum, c=_colors[j],
                 linestyle='-.', linewidth=2.0, dashes=(8, 3, 2, 3),
                 marker='^', markersize=8, markerfacecolor='none',
                 markeredgecolor=_colors[j], markeredgewidth=2,
-                alpha=0.8, label=f'Unique RX {labels[j]}')
+                alpha=0.8, label=f'Unq. RX {labels[j]}')
 
     plt.xlabel('Beacon number', fontsize=20)
     plt.ylabel('Cumulative packets', fontsize=20)

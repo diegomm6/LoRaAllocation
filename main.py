@@ -11,9 +11,9 @@ constellation = STARLINK_CONSTELLATION2
 
 slottime = lora_toa(PL_BYTES, 9)
 timeslots = int(np.ceil(round(float(t1 - t0) * 86400) / slottime))
-numLRchannels = 3
+numLRchannels = 2
 numFHSSchannles = 1
-numDevices = 300
+numDevices = 1000
 locationsfilename = "locations.txt"
 datafile = "6sats_1000EDs_91slots.json" # "6sats_300EDs_5460slots.json" # "6sats_1000EDs_91slots.json" # 1sats_300EDs_1274slots.json
 save_sache = False
@@ -23,12 +23,12 @@ network = DtSIoTNetwork(constellation, numDevices, t0, slottime, timeslots, numL
 
 runs = 40
 uplink_period = 60 # seconds
-sizes = np.linspace(5,100,5,dtype=int)
+sizes = np.linspace(5,1000,30,dtype=int)
 numEDs = 300
 
 #network.plot_bestSF_map()
 #network.plot_heatmapSF()
-#network.plot_heatmapSF_ULperiods(uplink_period, True, 100)
+#network.plot_heatmapSF_ULperiods(uplink_period, True, 10)
 
 network.schedule_single_window(sizes, runs, config=3)
 #network.schedule_multiple_window(numEDs, uplink_period, runs, config=2)

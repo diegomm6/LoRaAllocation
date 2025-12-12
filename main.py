@@ -11,7 +11,7 @@ constellation = STARLINK_CONSTELLATION2
 
 slottime = lora_toa(PL_BYTES, 9)
 timeslots = int(np.ceil(round(float(t1 - t0) * 86400) / slottime))
-numLRchannels = 2
+numLRchannels = 3
 numFHSSchannles = 1
 numDevices = 1000
 locationsfilename = "locations.txt"
@@ -30,5 +30,5 @@ numEDs = 300
 #network.plot_heatmapSF()
 #network.plot_heatmapSF_ULperiods(uplink_period, True, 10)
 
-network.schedule_single_window(sizes, runs, config=3)
+network.schedule_single_window(sizes, runs, config=2)
 #network.schedule_multiple_window(numEDs, uplink_period, runs, config=2)

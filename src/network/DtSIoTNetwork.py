@@ -81,11 +81,11 @@ class DtSIoTNetwork():
         ]
 
         if config==1:
-            return scheduler_configs1, labels1, 'success_', COLORS2
+            return scheduler_configs1, labels1, f'success_{self.numLRchannels}ch', COLORS2
         elif config==2:
-            return scheduler_configs2, labels2, 'singlechannel_', COLORS3
+            return scheduler_configs2, labels2, f'1d_{self.numLRchannels}ch_', COLORS3
         elif config==3:
-            return scheduler_configs3, labels3, 'multichannel_', COLORS4
+            return scheduler_configs3, labels3, f'2d_{self.numLRchannels}ch_', COLORS4
         
 
     # for a given schedule calculate the distance at transmission
@@ -237,11 +237,8 @@ class DtSIoTNetwork():
                 
                 t1 = time.perf_counter()
                 config_times[j,i] += (t1 - t0)
-                
-                if j==1: print(f"Total time for config {labels[j]} with {network_sizes[i]} EDs: {config_times[j,i]:.3f} s")
 
-
-        for j in [0]:
+        for j in []:
             for i in range(samples):
                 print(f"Total time for config {labels[j]} with {network_sizes[i]} EDs: {config_times[j,i]:.3f} s")
 

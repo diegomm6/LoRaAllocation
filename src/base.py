@@ -803,27 +803,29 @@ def plot_max_lora_nodes():
 # Plotting Time on Air for different Spreading Factors
 def plot_toa():
 
-    plt.figure(figsize=(10, 5))
+    plt.figure(figsize=(9, 5))
 
     for sf, max_pl in zip(range(7, 13), MAX_PL_LORA):
         payload_bytes = np.arange(1, max_pl)
         time_on_air = [lora_toa(int(x), sf) for x in payload_bytes]
-        plt.plot(payload_bytes, time_on_air, label=f'SF{sf}')
+        plt.plot(payload_bytes, time_on_air, label=f'SF{sf} BW 125kHz')
 
     for CR, max_pl in zip([1,2], MAX_PL_LRFHSS):
         payload_bytes = np.arange(1, max_pl)
         time_on_air = [lrfhss_toa(int(x), CR) for x in payload_bytes]
-        plt.plot(payload_bytes, time_on_air, label=f'LR-FHSS {CR}/3', linestyle='--')
+        plt.plot(payload_bytes, time_on_air, label=f'LR-FHSS CR{CR}/3', linestyle='--')
 
     # Plot settings
-    plt.title('LoRa and LR-FHSS Time on Air vs Payload Size\n(LoRa BW=125 kHz)', fontsize=16)
+    plt.title('LoRa and LR-FHSS Time on Air vs Payload Size', fontsize=16)
     plt.xlabel('Payload Size [bytes]', fontsize=14)
     plt.ylabel('Time on Air [seconds]', fontsize=14)
-    plt.legend(title='LoRa SF / LR-FHSS CR', fontsize=12)
+    plt.legend(title='LoRa SF / LR-FHSS CR', fontsize=10)
     plt.grid(True, linestyle='--', alpha=0.7)
     plt.tight_layout()
     plt.yticks(fontsize=12)
     plt.xticks(fontsize=12)
+    plt.xlim(-2, 80)
+    plt.ylim(-0.2, 4)
     #plt.show()
     plt.savefig("img/timeonair.pdf")
 
@@ -975,7 +977,7 @@ def plot_bestSFcurve(maxE_list, num_samples):
 def plot_doppler_curves(shift):
 
     num_samples = 1000
-    maxE_angles = np.array([90, 60, 30, 15, 5, 1]) * np.pi / 180
+    maxE_angles = np.array([90, 60, 30, 10]) * np.pi / 180
 
     dist = dist2sat_angle(maxE_angles)
 
@@ -986,7 +988,7 @@ def plot_doppler_curves(shift):
     ground_tracks = EARTH_R * np.sqrt(max_alpha_angle**2 - np.power(alpha_angles,2))
     visibility_time = ground_tracks / SAT_V
 
-    plt.figure()
+    plt.figure(figsize=(6.5,5))
     for maxE, tau in zip(maxE_angles, visibility_time):
 
         time = np.linspace(-tau, tau, num_samples)
@@ -998,18 +1000,20 @@ def plot_doppler_curves(shift):
             plt.plot(time, dopplerdata[:,1], label=f'θ* = {round(maxE*180/np.pi)}°')
 
     if shift:
-        plt.ylabel('Doppler Shift [kHz]')
-        plt.title('Doppler Shift versus maximum elevation angle θ*')
+        plt.ylabel('Doppler Shift [kHz]', fontsize=14)
+        plt.title('Doppler Shift observed for different θ*', fontsize=16)
 
     else:
-        plt.ylabel('Doppler Rate [Hz/s]')
-        plt.title('Doppler Rate versus maximum elevation angle θ*')
+        plt.ylabel('Doppler Rate [Hz/s]', fontsize=14)
+        plt.title('Doppler Rate observed for different θ*', fontsize=16)
 
-    plt.xlabel('time [s]')
-    plt.legend()
+    plt.xlabel('Time [s]', fontsize=14)
+    plt.legend(fontsize=14)
+    plt.xticks(fontsize=12)
+    plt.yticks(fontsize=12)
     plt.grid()
-    #plt.savefig("dopplerShift.jpg")
-    plt.show()
+    plt.savefig("dopplerShift.pdf")
+    #plt.show()
 
 
 ###############################################################################

@@ -59,10 +59,4 @@ point = wgs84.latlon(lat, lon)
 
 #print(get_beta_angle())
 
-for sf in [7,8,9,10,11,12]:
-    symbol_time = lora_symbol_time(sf)
-    freq_limit = 1 / (10 * symbol_time)
-    max_rate = 1 / (10 * symbol_time**2)
-    print(f"symbol time SF{sf}: {(symbol_time*1000):.4f} ms")
-    print(f"SF{sf}: Max freq drift: {freq_limit:.2f} Hz")
-    print(f"max doppler rate {max_rate} Hz/s\n")
+plot_doppler_curves(True)
